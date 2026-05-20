@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -62,3 +63,22 @@ def test_corrupt_db_falls_back_to_empty(tmp_path: Path):
     # Should recover by recreating the file
     cache.set("k", {"v": 1}, ttl_seconds=60)
     assert cache.get("k") == {"v": 1}
+
+
+def test_concurrent_set_during_swr_does_not_evict(tmp_path: Path):
+    """Regression: get_swr must not delete an entry that was just refreshed by another thread."""
+    cache = SqliteCache(tmp_path / "c.db")
+    cache.set("k", "old", ttl_seconds=0.01, swr_seconds=0.01)
+    time.sleep(0.05)  # entry is now past TTL+SWR
+
+    # Simulate: a refresh writes "new" right before get_swr's lazy-delete.
+    def refresh():
+        cache.set("k", "new", ttl_seconds=60)
+
+    t = threading.Thread(target=refresh)
+    t.start()
+    t.join()
+
+    # Now call get_swr (entry is fresh again from the refresh)
+    val, _ = cache.get_swr("k")
+    assert val == "new"  # must NOT have been evicted by the lazy-delete

@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS cache_entries (
   ttl_seconds    REAL NOT NULL,
   swr_seconds    REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_created_at ON cache_entries(created_at);
 """
 
 
@@ -34,7 +33,8 @@ class SqliteCache:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._init_db()
+        with self._lock:
+            self._init_db()
 
     def _init_db(self) -> None:
         try:
@@ -91,8 +91,12 @@ class SqliteCache:
             return json.loads(value_json), False
         if age < (ttl + swr):
             return json.loads(value_json), True
+        # Past SWR window — lazy-delete, but only if this exact row is still there.
         with self._lock, self._connect() as conn:
-            conn.execute("DELETE FROM cache_entries WHERE key=?", (key,))
+            conn.execute(
+                "DELETE FROM cache_entries WHERE key=? AND created_at=?",
+                (key, created_at),
+            )
         return None, True
 
     def bust(self, prefix: str = "") -> int:
