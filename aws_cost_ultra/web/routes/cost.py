@@ -42,32 +42,63 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         session = get_session(profile)
         ce = get_ce_client(session)
         spec = pre_credit_gross()
+
+        # account_id is required as the cache namespace so two profiles
+        # pointing at different accounts don't share matrix entries.
+        account_id = session.client("sts").get_caller_identity()["Account"]
+
         window = period_to_window(period)
         prev_window = period_to_window("last_month") if period in ("mtd", "3m", "30d") else period_to_window("3m")
         fcast_window = remainder_of_current_month()
         mtd_window = window if period == "mtd" else current_month()
 
+        from aws_cost_ultra.aws.cost_store import CostStore
+        store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
+
+        # Parallelism is preserved — but everything is cached so cold cost
+        # is at most 3 CE calls (window, prev, optional mtd) + 1 forecast.
         with ThreadPoolExecutor(max_workers=4) as pool:
-            f_total = pool.submit(ce.get_total_cost, window, spec=spec)
-            f_prev = pool.submit(ce.get_total_cost, prev_window, spec=spec)
-            f_services = pool.submit(ce.get_cost_by_service, window, spec=spec)
+            f_matrix = pool.submit(store.get_matrix, profile, account_id, window, spec)
+            f_prev_matrix = pool.submit(store.get_matrix, profile, account_id, prev_window, spec)
             f_forecast = pool.submit(ce.get_forecast, fcast_window, spec=spec)
-            f_mtd = pool.submit(ce.get_total_cost, mtd_window, spec=spec) if period != "mtd" else None
+            f_mtd_matrix = (
+                pool.submit(store.get_matrix, profile, account_id, mtd_window, spec)
+                if period != "mtd" else None
+            )
 
-        total_cv = f_total.result()
-        prev_cv = f_prev.result()
-        services = merge_ec2_service_groups(f_services.result())
+        m = f_matrix.result()
+        prev_m = f_prev_matrix.result()
         forecast_cv = f_forecast.result()
-        mtd_cv = f_mtd.result() if f_mtd else total_cv
+        mtd_m = f_mtd_matrix.result() if f_mtd_matrix else m
 
-        ctx["total_mtd"] = total_cv.amount_usd
-        ctx["total_prev"] = prev_cv.amount_usd
-        if prev_cv.amount_usd >= 0.50:
-            raw = (total_cv.amount_usd - prev_cv.amount_usd) / prev_cv.amount_usd * 100
+        # Build a synthetic provenance label for the merged services list.
+        # The matrix already carries no per-cell provenance; use a coarse one.
+        from aws_cost_ultra.core.provenance import Provenance
+        from aws_cost_ultra.core.types import CostMetric
+        prov = Provenance(
+            source="cost_explorer",
+            metric=CostMetric.UNBLENDED,
+            window=window,
+            timezone_str="UTC",
+            excluded_record_types=tuple(spec.excluded_record_types) if spec.excluded_record_types else None,
+            included_record_types=tuple(spec.included_record_types) if spec.included_record_types else None,
+            group_by=("SERVICE",),
+            filter_summary=spec.summary(),
+        )
+        services = merge_ec2_service_groups(m.to_grouped_cost_list(prov))
+
+        total_amount = m.total()
+        prev_amount = prev_m.total()
+        mtd_amount = mtd_m.total()
+
+        ctx["total_mtd"] = total_amount
+        ctx["total_prev"] = prev_amount
+        if prev_amount >= 0.50:
+            raw = (total_amount - prev_amount) / prev_amount * 100
             ctx["change_pct"] = max(-999.9, min(9999.9, raw))
         if forecast_cv:
-            ctx["forecast"] = mtd_cv.amount_usd + forecast_cv.amount_usd
-            ctx["forecast_mtd_actual"] = mtd_cv.amount_usd
+            ctx["forecast"] = mtd_amount + forecast_cv.amount_usd
+            ctx["forecast_mtd_actual"] = mtd_amount
         if services:
             ctx["top_service_name"] = services[0].primary_key()
             ctx["top_service_cost"] = services[0].value.amount_usd
@@ -83,14 +114,35 @@ def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
         session = get_session(profile)
         ce = get_ce_client(session)
         spec = pre_credit_gross()
+        account_id = session.client("sts").get_caller_identity()["Account"]
         window = period_to_window(period)
         prev_window = period_to_window("last_month") if period in ("mtd", "30d") else period_to_window("3m")
 
+        from aws_cost_ultra.aws.cost_store import CostStore
+        store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
+
         with ThreadPoolExecutor(max_workers=2) as pool:
-            f_groups = pool.submit(ce.get_cost_by_service, window, spec=spec)
-            f_prev = pool.submit(ce.get_cost_by_service, prev_window, spec=spec)
-        groups = merge_ec2_service_groups(f_groups.result())
-        prev_map = {g.primary_key(): g.value.amount_usd for g in f_prev.result()}
+            f_matrix = pool.submit(store.get_matrix, profile, account_id, window, spec)
+            f_prev = pool.submit(store.get_matrix, profile, account_id, prev_window, spec)
+
+        m = f_matrix.result()
+        prev_m = f_prev.result()
+
+        from aws_cost_ultra.core.provenance import Provenance
+        from aws_cost_ultra.core.types import CostMetric
+        prov = Provenance(
+            source="cost_explorer",
+            metric=CostMetric.UNBLENDED,
+            window=window,
+            timezone_str="UTC",
+            excluded_record_types=tuple(spec.excluded_record_types) if spec.excluded_record_types else None,
+            included_record_types=tuple(spec.included_record_types) if spec.included_record_types else None,
+            group_by=("SERVICE",),
+            filter_summary=spec.summary(),
+        )
+
+        groups = merge_ec2_service_groups(m.to_grouped_cost_list(prov))
+        prev_map = {svc: cost for svc, cost in prev_m.by_service()}
 
         effective_limit = limit if limit > 0 else None
         services, total = service_rows_from_groups(groups, prev_map, limit=effective_limit)
@@ -218,12 +270,17 @@ def api_trend_table(
     profile: str = Query("default"),
     period: str = Query("3m"),
 ):
+    gran = _trend_granularity_for_period(period)
+    ckey = f"trend_table_html:{profile}:{period}:{gran.value}"
+    cached = cache_get(ckey)
+    if cached:
+        return render(request, "partials/trend_table.html", cached)
+
     ctx: dict = {"error": None, "points": [], "max_cost": 0.0}
     try:
         session = get_session(profile)
         ce = get_ce_client(session)
         window = period_to_window(period)
-        gran = _trend_granularity_for_period(period)
         raw = ce.get_trend(window, granularity=gran)
         period_fmt = (lambda p: p.period_start[:10]) if gran == Granularity.DAILY else (lambda p: p.period_start[:7])
         points = [{"period": period_fmt(p), "cost": p.value.amount_usd} for p in reversed(raw)]
@@ -231,6 +288,7 @@ def api_trend_table(
         ctx["max_cost"] = max((p["cost"] for p in points), default=0.0)
     except Exception as exc:
         ctx["error"] = friendly_error(exc)
+    cache_set(ckey, ctx)
     return render(request, "partials/trend_table.html", ctx)
 
 

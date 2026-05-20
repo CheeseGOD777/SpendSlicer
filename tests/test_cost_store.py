@@ -104,3 +104,28 @@ def test_store_cache_key_namespaces_account():
     store.get_matrix("p1", "acct1", w, spec="pre_credit_gross")
     store.get_matrix("p1", "acct2", w, spec="pre_credit_gross")
     assert ce.daily_service_matrix.call_count == 2  # different account → different key
+
+
+def test_to_grouped_cost_list_preserves_order_and_totals():
+    from datetime import datetime, timezone
+    from aws_cost_ultra.core.provenance import Provenance
+    from aws_cost_ultra.core.types import CostMetric, TimeWindow
+    m = DailyServiceMatrix.from_ce(_fake_ce_response())
+    win = TimeWindow(
+        start=datetime(2026, 5, 18, tzinfo=timezone.utc),
+        end=datetime(2026, 5, 20, tzinfo=timezone.utc),
+    )
+    prov = Provenance(
+        source="cost_explorer",
+        metric=CostMetric.UNBLENDED,
+        window=win,
+        timezone_str="UTC",
+        excluded_record_types=("Credit", "Refund", "Upfront"),
+        included_record_types=None,
+        group_by=("SERVICE",),
+        filter_summary="",
+    )
+    groups = m.to_grouped_cost_list(prov)
+    assert [g.primary_key() for g in groups] == ["Amazon EC2", "Amazon S3"]
+    assert groups[0].value.amount_usd == pytest.approx(3.05)
+    assert groups[1].value.amount_usd == pytest.approx(0.42)

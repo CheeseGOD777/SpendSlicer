@@ -59,6 +59,18 @@ class DailyServiceMatrix:
         ]
         return labels, values
 
+    def to_grouped_cost_list(self, provenance: Any) -> list:
+        """Convert matrix's service totals into GroupedCost list for existing helpers."""
+        from aws_cost_ultra.aws.cost_explorer import GroupedCost  # local to dodge any cycle
+        from aws_cost_ultra.core.provenance import CostValue
+        return [
+            GroupedCost(
+                key=(svc,),
+                value=CostValue(amount_usd=cost, provenance=provenance),
+            )
+            for svc, cost in self.by_service()
+        ]
+
 
 def _spec_summary(spec: Any) -> str:
     summarizer = getattr(spec, "summary", None)
