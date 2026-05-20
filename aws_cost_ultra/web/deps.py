@@ -108,8 +108,28 @@ def get_session(profile: str = Query("default")) -> boto3.Session:
         return boto3.Session()
 
 
+# Each worker thread gets its own CostExplorerClient instance to avoid
+# any chance of contention on the underlying boto3 client. Sessions
+# themselves are not pooled here — they're cheap.
+_ce_local = threading.local()
+
+
 def get_ce_client(session: boto3.Session) -> CostExplorerClient:
-    return CostExplorerClient(session=session)
+    """Per-thread CostExplorerClient cached by session identity.
+
+    The wrapper claims not to be thread-safe; this keeps each worker
+    isolated without paying for repeated client construction.
+    """
+    key = id(session)
+    cache: dict[int, CostExplorerClient] | None = getattr(_ce_local, "clients", None)
+    if cache is None:
+        cache = {}
+        _ce_local.clients = cache
+    client = cache.get(key)
+    if client is None:
+        client = CostExplorerClient(session=session)
+        cache[key] = client
+    return client
 
 
 def get_profiles() -> list[str]:
