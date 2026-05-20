@@ -108,6 +108,20 @@ class CostExplorerClient:
             ),
         )
 
+    def daily_service_matrix(self, window, spec) -> list[dict]:
+        """One canonical CE call: DAILY granularity, grouped by SERVICE.
+
+        Returns the raw CE ``ResultsByTime`` list (already concatenated
+        across pagination). Callers slice with DailyServiceMatrix.from_ce.
+        """
+        return self._get_cost_and_usage(
+            window=window,
+            metric=CostMetric.UNBLENDED,
+            spec=spec,
+            granularity=Granularity.DAILY,
+            group_by=(("DIMENSION", "SERVICE"),),
+        )
+
     def get_cost_by_service(
         self,
         window: TimeWindow,
