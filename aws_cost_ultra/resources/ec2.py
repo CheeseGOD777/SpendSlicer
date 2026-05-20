@@ -1,10 +1,7 @@
-"""EC2 attribution — CE RESOURCE_ID ground truth, USAGE_TYPE fallback.
+"""EC2 attribution — USAGE_TYPE buckets split by running hours.
 
-Primary path: Cost Explorer ``RESOURCE_ID`` dimension (billed instance id →
-exact cost). This matches AWS billing when resource-level data is available.
-
-Fallback: CE ``USAGE_TYPE`` buckets split across running hours via
-``describe_instances`` (for accounts without RESOURCE_ID data).
+CE-RESOURCE_ID attribution was removed (UsageRecord surcharge). Plan 2
+(CUR + DuckDB) supersedes both paths with free per-resource named cost.
 """
 
 from __future__ import annotations
@@ -14,14 +11,11 @@ from datetime import datetime
 from typing import Optional
 
 import boto3
-from botocore.exceptions import ClientError
 
-from aws_cost_ultra.aws.ce_attribution import ce_ec2_cost_by_instance_id
 from aws_cost_ultra.core.filters import CostFilterSpec, build_ce_filter, pre_credit_gross
 
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
 
-_CE_SOURCE = "cost_explorer_resource_id"
 _FALLBACK_SOURCE = "cost_explorer_usage_type"
 
 
@@ -32,21 +26,14 @@ def attribute_ec2(
     window_end: datetime,
     region: str,
     spec: Optional[CostFilterSpec] = None,
-    ce_instance_costs: Optional[dict[str, dict[str, float]]] = None,
 ) -> list[AttributedResource]:
-    """Attribute EC2 for one region.
+    """Attribute EC2 for one region via USAGE_TYPE buckets split by running hours.
 
-    ``ce_instance_costs`` should be pre-fetched once per account/window by
-    the runner to avoid duplicate CE calls across regions.
+    RESOURCE_ID-based attribution was removed because the CE
+    GetCostAndUsageWithResources call bills $0.00001/UsageRecord on top of
+    the $0.01/request and dominated the tool's running cost. Plan 2 (CUR)
+    re-introduces named per-resource cost from a free local warehouse.
     """
-    if ce_instance_costs is None:
-        ce_instance_costs = ce_ec2_cost_by_instance_id(
-            ce_client, window_start, window_end, spec=spec,
-        )
-    if ce_instance_costs:
-        return _attribute_from_resource_ids(
-            session, ce_instance_costs, region, window_start, window_end,
-        )
     return _attribute_from_usage_type(
         session, ce_client, window_start, window_end, region, spec=spec,
     )
@@ -60,99 +47,14 @@ def attribute_ec2_account(
     regions: list[str],
     spec: Optional[CostFilterSpec] = None,
 ) -> list[AttributedResource]:
-    """Attribute EC2 across all regions (single CE fetch)."""
+    """Attribute EC2 across all regions via USAGE_TYPE fallback (no CE RESOURCE_ID)."""
     spec = spec or pre_credit_gross()
-    ce_by_id = ce_ec2_cost_by_instance_id(ce_client, window_start, window_end, spec=spec)
-    if ce_by_id:
-        rows: list[AttributedResource] = []
-        for region in regions:
-            rows.extend(_attribute_from_resource_ids(
-                session, ce_by_id, region, window_start, window_end,
-            ))
-        rows.sort(key=lambda r: r.cost_usd, reverse=True)
-        return rows
-    rows = []
+    rows: list[AttributedResource] = []
     for region in regions:
         rows.extend(_attribute_from_usage_type(
             session, ce_client, window_start, window_end, region, spec=spec,
         ))
     rows.sort(key=lambda r: r.cost_usd, reverse=True)
-    return rows
-
-
-def _attribute_from_resource_ids(
-    session: boto3.Session,
-    ce_by_id: dict[str, dict[str, float]],
-    region: str,
-    window_start: datetime,
-    window_end: datetime,
-) -> list[AttributedResource]:
-    """Map CE instance-id costs to live or historical instances in ``region``."""
-    ec2 = session.client("ec2", region_name=region)
-    rows: list[AttributedResource] = []
-    ids = list(ce_by_id.keys())
-    inst_meta: dict[str, dict] = {}
-
-    for i in range(0, len(ids), 200):
-        chunk = ids[i : i + 200]
-        try:
-            resp = ec2.describe_instances(InstanceIds=chunk)
-        except ClientError:
-            continue
-        for res in resp.get("Reservations", []):
-            for inst in res.get("Instances", []):
-                iid = inst["InstanceId"]
-                state = inst["State"]["Name"]
-                if state == "terminated":
-                    continue
-                launch = inst.get("LaunchTime")
-                run_hrs = 0.0
-                if state == "running" and launch:
-                    eff_s, eff_e = clamp_window(launch, window_start, window_end)
-                    run_hrs = hours_between(eff_s, eff_e)
-                inst_meta[iid] = {
-                    "id": iid,
-                    "name": tag_name(inst.get("Tags"), fallback=iid),
-                    "tags": tags_to_dict(inst.get("Tags")),
-                    "type": inst["InstanceType"],
-                    "state": state,
-                    "hours": run_hrs,
-                    "az": inst.get("Placement", {}).get("AvailabilityZone", ""),
-                    "private_ip": inst.get("PrivateIpAddress", ""),
-                    "public_ip": inst.get("PublicIpAddress", ""),
-                    "lifecycle": (
-                        "spot" if inst.get("InstanceLifecycle") == "spot" else "ondemand"
-                    ),
-                }
-
-    for iid, ce_data in ce_by_id.items():
-        if iid not in inst_meta:
-            continue
-        inst = inst_meta[iid]
-        cost = ce_data["cost"]
-        hrs = ce_data.get("hours", inst["hours"])
-        display_type = inst["type"] + (
-            " (spot)" if inst["lifecycle"] == "spot" else ""
-        )
-        rows.append(AttributedResource(
-            service="EC2",
-            resource_id=iid,
-            name=inst["name"],
-            resource_type=display_type,
-            state=inst["state"],
-            cost_usd=cost,
-            hours=hrs,
-            region=region,
-            tags=inst["tags"],
-            attributes={
-                "az": inst["az"],
-                "private_ip": inst["private_ip"],
-                "public_ip": inst["public_ip"],
-                "lifecycle": inst["lifecycle"],
-                "attribution_source": _CE_SOURCE,
-            },
-        ))
-
     return rows
 
 

@@ -18,10 +18,11 @@ def test_core_imports():
 
 def test_aws_layer_imports():
     from aws_cost_ultra.aws import cost_explorer, session
-    from aws_cost_ultra.aws.ce_attribution import ce_ec2_cost_by_instance_id
+    from aws_cost_ultra.resources.ec2 import attribute_ec2, attribute_ec2_account
     assert callable(session.make_session)
     assert callable(session.list_profiles)
-    assert callable(ce_ec2_cost_by_instance_id)
+    assert callable(attribute_ec2)
+    assert callable(attribute_ec2_account)
 
 
 def test_resources_imports():
