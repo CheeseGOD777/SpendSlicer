@@ -1,17 +1,13 @@
 """FastAPI dependency helpers — session, cache, profile resolution.
 
-The cache is an in-memory dict (fast) backed by a JSON file so it
-survives uvicorn --reload cycles. Reloads were previously evicting
-every entry and forcing a cold re-fetch of every AWS call.
+The cache is a SQLite-backed store (SqliteCache) that survives restarts
+and uvicorn --reload cycles without losing warm entries.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 import threading
-import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,89 +22,15 @@ from aws_cost_ultra.aws.session import list_profiles, make_session
 _TTL = float(os.environ.get("ACU_CACHE_TTL_SECONDS", "1800"))          # 30 min fresh
 _SWR_WINDOW = float(os.environ.get("ACU_CACHE_SWR_SECONDS", "21600"))  # +6h stale
 _CACHE_DIR = Path(os.environ.get("ACU_CACHE_DIR", Path.home() / ".cache" / "aws_cost_ultra"))
-_CACHE_FILE = _CACHE_DIR / "api_cache.json"
+_CACHE_DB = _CACHE_DIR / "cache.db"
 
-_cache: dict[str, tuple[float, Any]] = {}
-_lock = threading.Lock()
+from aws_cost_ultra.web.sqlite_cache import SqliteCache  # noqa: E402
 
-
-def _load_from_disk() -> None:
-    """Hydrate the in-memory cache from disk on startup.
-
-    Entries within TTL + SWR_WINDOW are kept so stale-but-usable data
-    survives a restart. Anything beyond that window is discarded.
-    """
-    if not _CACHE_FILE.exists():
-        return
-    try:
-        with _CACHE_FILE.open("r", encoding="utf-8") as f:
-            raw = json.load(f)
-        now = time.time()
-        with _lock:
-            for k, (ts, val) in raw.items():
-                if (now - ts) < (_TTL + _SWR_WINDOW):
-                    _cache[k] = (ts, val)
-    except (json.JSONDecodeError, OSError, ValueError):
-        # Corrupt cache → start fresh. Not worth crashing the app over.
-        pass
-
-
-def _flush_to_disk() -> None:
-    """Atomic write of the current in-memory cache to disk.
-
-    Writes to a temp file in the same directory, then renames — POSIX
-    rename is atomic, so concurrent readers never see a partial file.
-    """
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    with _lock:
-        snapshot = dict(_cache)
-    try:
-        fd, tmp_path = tempfile.mkstemp(
-            prefix=".api_cache.",
-            suffix=".json",
-            dir=str(_CACHE_DIR),
-        )
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(snapshot, f)
-        os.replace(tmp_path, _CACHE_FILE)
-    except (OSError, TypeError):
-        # JSON can't serialise some value → swallow; the in-memory
-        # cache still holds the entry for this process.
-        try:
-            os.unlink(tmp_path)
-        except (OSError, UnboundLocalError, NameError):
-            pass
-
-
-# Flushes are debounced so rapid sets (during pre-warm or a page load
-# that hits many endpoints) don't spam the filesystem.
-_pending_flush = threading.Event()
-
-
-def _flush_worker() -> None:
-    while True:
-        _pending_flush.wait()
-        _pending_flush.clear()
-        time.sleep(1.0)  # debounce window
-        _flush_to_disk()
-
-
-_flush_thread = threading.Thread(target=_flush_worker, daemon=True, name="acu-cache-flush")
-_flush_thread.start()
-
-# Hydrate on module load — uvicorn --reload re-imports the module, so
-# this runs on every reload and restores the warm cache immediately.
-_load_from_disk()
+_cache = SqliteCache(_CACHE_DB)
 
 
 def cache_get(key: str) -> Optional[Any]:
-    with _lock:
-        entry = _cache.get(key)
-        if entry and (time.time() - entry[0]) < _TTL:
-            return entry[1]
-        if entry:
-            del _cache[key]
-    return None
+    return _cache.get(key)
 
 
 def cache_get_swr(key: str) -> tuple[Optional[Any], bool]:
@@ -121,33 +43,20 @@ def cache_get_swr(key: str) -> tuple[Optional[Any], bool]:
     The caller stays responsible for kicking the background refresh so
     this module doesn't need knowledge of handler logic.
     """
-    with _lock:
-        entry = _cache.get(key)
-        if not entry:
-            return None, True
-        age = time.time() - entry[0]
-        if age < _TTL:
-            return entry[1], False
-        if age < _TTL + _SWR_WINDOW:
-            return entry[1], True
-        # Drop entries past the SWR window so the file doesn't grow forever.
-        del _cache[key]
-        return None, True
+    return _cache.get_swr(key)
 
 
-def cache_set(key: str, val: Any) -> None:
-    with _lock:
-        _cache[key] = (time.time(), val)
-    _pending_flush.set()
+def cache_set(key: str, val: Any, ttl_seconds: float | None = None, swr_seconds: float | None = None) -> None:
+    _cache.set(
+        key,
+        val,
+        ttl_seconds=_TTL if ttl_seconds is None else ttl_seconds,
+        swr_seconds=_SWR_WINDOW if swr_seconds is None else swr_seconds,
+    )
 
 
 def cache_bust(prefix: str = "") -> int:
-    with _lock:
-        keys = [k for k in _cache if k.startswith(prefix)]
-        for k in keys:
-            del _cache[k]
-    _pending_flush.set()
-    return len(keys)
+    return _cache.bust(prefix)
 
 
 # ---------------------------------------------------------------------------
