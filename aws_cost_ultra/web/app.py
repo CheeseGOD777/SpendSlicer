@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from aws_cost_ultra.web.context import get_profile_choices
 from aws_cost_ultra.web.deps import get_profiles
 from aws_cost_ultra.web.prewarm import prewarm_background
+from aws_cost_ultra.web.middleware import CECountingMiddleware
 from aws_cost_ultra.web.routes import audit_api, cost, export_api, pages, resources_api
 
 _HERE = Path(__file__).parent
@@ -22,6 +23,8 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+
+app.add_middleware(CECountingMiddleware)
 
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 

@@ -255,6 +255,8 @@ class CostExplorerClient:
         try:
             resp = self._client.get_cost_forecast(**kwargs)
             total = float(resp["Total"]["Amount"])
+            from aws_cost_ultra.web.middleware import get_current_counter  # local import avoids cycle
+            get_current_counter().add(pages=1)
         except Exception:  # CE raises on short windows / insufficient data
             return None
         return CostValue(
@@ -342,7 +344,12 @@ class CostExplorerClient:
             if token:
                 call_kwargs["NextPageToken"] = token
             resp = self._client.get_cost_and_usage(**call_kwargs)
-            all_periods.extend(resp.get("ResultsByTime", []))
+            results = resp.get("ResultsByTime", [])
+            all_periods.extend(results)
+            from aws_cost_ultra.web.middleware import get_current_counter  # local import avoids cycle
+            counter = get_current_counter()
+            record_count = sum(len(p.get("Groups", []) or []) for p in results)
+            counter.add(pages=1, records=record_count)
             token = resp.get("NextPageToken")
             if not token:
                 break
