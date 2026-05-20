@@ -1,0 +1,7 @@
+Service,Resource Name,Raw Detail,Cost (USD),Usage Qty
+EC2 - Other,(untagged),Name$,0.1595,611.5771
+Amazon Simple Storage Service,(untagged),Name$,0.047,12207852.5225
+Amazon Elastic Load Balancing,(untagged),Name$,0.0246,674.586
+EC2 - Other,(untagged),Name$,0.007,46.7346
+Amazon Simple Storage Service,(untagged),Name$,0.0036,659535.159
+Amazon Elastic Compute Cloud - Compute,(untagged),Name$,0.0024,4266.6701

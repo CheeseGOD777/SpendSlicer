@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Cost Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Top Navigation -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" fill="#FF9900"/>
+                    <path d="M12 2L2 7l10 5 10-5L12 2z" fill="#FFB84D"/>
+                    <text x="8" y="17" font-size="9" fill="#232F3E" font-weight="bold">$</text>
+                </svg>
+                <h1>AWS Cost Dashboard</h1>
+            </div>
+            <span class="account-badge" id="accountBadge">Connecting...</span>
+        </div>
+        <div class="topbar-right">
+            <!-- Profile Selector -->
+            <div class="profile-selector">
+                <label class="profile-label">Profile:</label>
+                <select id="profileSelect" class="select-input select-profile">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+            <div class="divider"></div>
+            <!-- Date Controls -->
+            <div class="date-controls">
+                <select id="datePreset" class="select-input">
+                    <option value="7">Last 7 Days</option>
+                    <option value="14">Last 14 Days</option>
+                    <option value="30" selected>Last 30 Days</option>
+                    <option value="month">This Month</option>
+                    <option value="lastmonth">Last Month</option>
+                    <option value="90">Last 3 Months</option>
+                    <option value="custom">Custom Range</option>
+                </select>
+                <div class="custom-dates" id="customDates" style="display:none">
+                    <input type="date" id="startDate" class="date-input">
+                    <span class="date-sep">to</span>
+                    <input type="date" id="endDate" class="date-input">
+                </div>
+                <button class="btn btn-primary" id="refreshBtn" title="Refresh data">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 4v6h-6M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Error Banner -->
+        <div class="error-banner" id="errorBanner" style="display:none">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span id="errorText"></span>
+            <button class="btn-close" id="errorClose">&times;</button>
+        </div>
+
+        <!-- Summary Cards -->
+        <section class="summary-cards">
+            <div class="card summary-card">
+                <div class="card-label">Total Cost</div>
+                <div class="card-value" id="totalCost">--</div>
+                <div class="card-sub" id="totalChange"></div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-label">Top Service</div>
+                <div class="card-value" id="topService">--</div>
+                <div class="card-sub" id="topServiceCost"></div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-label">Active Services</div>
+                <div class="card-value" id="activeServices">--</div>
+                <div class="card-sub">with non-zero cost</div>
+            </div>
+            <div class="card summary-card">
+                <div class="card-label">Month-End Forecast</div>
+                <div class="card-value" id="forecast">--</div>
+                <div class="card-sub">estimated total</div>
+            </div>
+        </section>
+
+        <!-- Charts Row -->
+        <section class="charts-row">
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2>Cost by Service</h2>
+                </div>
+                <div class="chart-wrap">
+                    <canvas id="serviceChart"></canvas>
+                </div>
+                <div class="chart-legend" id="serviceLegend"></div>
+            </div>
+            <div class="card chart-card chart-card-wide">
+                <div class="card-header">
+                    <h2>Daily Cost Trend</h2>
+                </div>
+                <div class="chart-wrap chart-wrap-wide">
+                    <canvas id="dailyChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Resource Table -->
+        <section class="card table-card">
+            <div class="table-header">
+                <div class="table-title-row">
+                    <h2>Resource-Level Costs</h2>
+                    <!-- View Toggle -->
+                    <div class="view-toggle">
+                        <button class="view-btn active" data-view="resource" title="Real resources from describe APIs, with exact names and waste detection">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/>
+                                <circle cx="7" cy="7" r="0.5" fill="currentColor"/><circle cx="7" cy="17" r="0.5" fill="currentColor"/>
+                            </svg>
+                            By Instance
+                            <span class="view-btn-badge">NEW</span>
+                        </button>
+                        <button class="view-btn" data-view="tag" title="Group by resource Name tag (Cost Explorer)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+                                <line x1="7" y1="7" x2="7.01" y2="7"/>
+                            </svg>
+                            By Tag
+                        </button>
+                        <button class="view-btn" data-view="usage" title="Group by usage type (instance types, operations)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                            </svg>
+                            By Usage Type
+                        </button>
+                        <button class="view-btn" data-view="account" title="Group by linked AWS account">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/>
+                                <circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/>
+                                <path d="M16 3.13a4 4 0 010 7.75"/>
+                            </svg>
+                            By Account
+                        </button>
+                    </div>
+                </div>
+                <div class="table-controls">
+                    <div class="search-box">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                        <input type="text" id="searchInput" placeholder="Search resources..." class="search-input">
+                    </div>
+                    <select id="serviceFilter" class="select-input">
+                        <option value="">All Services</option>
+                    </select>
+                    <button class="btn btn-secondary" id="exportBtn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Export CSV
+                    </button>
+                </div>
+            </div>
+            <!-- Service pills (only in Resource view) -->
+            <div class="service-pills" id="servicePills" style="display:none">
+                <button class="pill active" data-svc="EC2">EC2 Instances</button>
+                <button class="pill" data-svc="EIP">Elastic IPs</button>
+                <button class="pill" data-svc="EBS">EBS Volumes</button>
+                <button class="pill" data-svc="RDS">RDS Databases</button>
+                <button class="pill" data-svc="ELB">Load Balancers</button>
+                <span class="pill-region">region: ap-south-1</span>
+            </div>
+
+            <!-- Waste finder -->
+            <div class="waste-panel" id="wastePanel" style="display:none"></div>
+
+            <!-- Tag activation banner -->
+            <div class="tag-banner" id="tagBanner" style="display:none">
+                <div class="tag-banner-inner">
+                    <div class="tag-banner-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>
+                    </div>
+                    <div>
+                        <div class="tag-banner-title">Tag <code>Name</code> isn't activated as a Cost Allocation Tag</div>
+                        <div class="tag-banner-body">Your resources <em>are</em> tagged — AWS just won't break cost down by tag until you activate it in <a href="https://us-east-1.console.aws.amazon.com/billing/home#/tags" target="_blank" rel="noopener">Billing &rarr; Cost allocation tags</a>. Takes ~24h to populate. <strong>Or switch to "By Instance"</strong> above — it works today using describe APIs.</div>
+                    </div>
+                    <button class="btn-close" id="tagBannerClose" aria-label="Dismiss">&times;</button>
+                </div>
+            </div>
+
+            <div class="table-info" id="tableInfo"></div>
+            <div class="table-container">
+                <table class="data-table" id="resourceTable">
+                    <thead id="resourceThead"></thead>
+                    <tbody id="resourceBody">
+                        <tr class="loading-row">
+                            <td colspan="6">
+                                <div class="loading-spinner"></div>
+                                <span>Loading resource costs...</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-footer">
+                <span id="rowCount">0 resources</span>
+                <span id="lastUpdated"></span>
+            </div>
+        </section>
+
+        <!-- Setup Help -->
+        <section class="card setup-card" id="setupCard" style="display:none">
+            <h2>Setup Required</h2>
+            <p>To use this dashboard, configure your AWS credentials:</p>
+            <div class="setup-steps">
+                <div class="setup-step">
+                    <span class="step-num">1</span>
+                    <div>
+                        <strong>Configure AWS CLI credentials:</strong>
+                        <code>aws configure</code>
+                    </div>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">2</span>
+                    <div>
+                        <strong>Required IAM permissions:</strong>
+                        <code>ce:GetCostAndUsage, ce:GetCostForecast, sts:GetCallerIdentity</code>
+                    </div>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">3</span>
+                    <div>
+                        <strong>For "By Resource Name" view — activate the Name tag:</strong>
+                        <span>AWS Billing Console &rarr; Cost Allocation Tags &rarr; Activate "Name" as a user-defined cost allocation tag. Takes ~24h to populate.</span>
+                    </div>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">4</span>
+                    <div>
+                        <strong>Select your profile above</strong> to connect to the right AWS account.
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <span>AWS Cost Dashboard &mdash; Data from AWS Cost Explorer API</span>
+        <span>Cost Explorer API: ~$0.01 per request</span>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

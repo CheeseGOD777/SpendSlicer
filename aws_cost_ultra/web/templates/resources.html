@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Resources — aws-cost-ultra{% endblock %}
+{% block topbar_title %}Resources{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
+  <div>
+    <div class="page-title">Per-Resource Cost Attribution</div>
+    <div class="page-subtitle">
+      CE-backed costs · {{ active_profile }} · {{ period }} ·
+      {% if region == 'all' %}all regions{% else %}{{ region }}{% endif %}
+    </div>
+  </div>
+
+  <form method="GET" action="/resources" style="display:flex;gap:8px;align-items:center">
+    <input type="hidden" name="profile" value="{{ active_profile }}">
+    <input type="hidden" name="period" value="{{ period }}">
+    <label class="stat-label" style="margin:0">Region</label>
+    <select name="region" class="select-pill" onchange="this.form.submit()">
+      {% for code, label in regions %}
+      <option value="{{ code }}" {% if region == code %}selected{% endif %}>{{ code }} — {{ label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<!-- Service filter tabs — populated from CE data after main fetch -->
+<div id="service-tabs"
+     hx-get="/api/resources/services?profile={{ active_profile }}&period={{ period }}&region={{ region }}"
+     hx-trigger="load, refreshTabs from:body"
+     hx-swap="innerHTML">
+  <div class="audit-tabs" style="margin-bottom:18px">
+    <div class="skeleton skel-line-sm" style="width:520px;height:34px"></div>
+  </div>
+</div>
+
+<!-- Resource table -->
+<div id="resource-wrap"
+     hx-get="/api/resources?profile={{ active_profile }}&period={{ period }}&region={{ region }}"
+     hx-trigger="load"
+     hx-on::after-request="htmx.trigger(document.body, 'refreshTabs')">
+  <div class="card">
+    <div style="padding:16px">
+      {% for _ in range(8) %}
+      <div class="skeleton skel-table-row mb-4"></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

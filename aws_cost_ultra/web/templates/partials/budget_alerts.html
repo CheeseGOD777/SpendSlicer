@@ -1,0 +1,48 @@
+{% if error %}
+<div class="error-card" style="margin:12px">
+  <div class="error-icon">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="8" cy="8" r="6.5"/><path d="M8 5v4M8 11v.5"/>
+    </svg>
+  </div>
+  <div>
+    <div class="error-title">Budget data unavailable</div>
+    <div class="error-msg">{{ error }}</div>
+  </div>
+</div>
+{% elif not findings %}
+<div class="empty-state anim-in">
+  <div class="empty-icon">✓</div>
+  <div class="empty-title">No budgets configured</div>
+  <div class="empty-desc">Create budgets in AWS Budgets to track thresholds here.</div>
+</div>
+{% else %}
+<div class="anim-in">
+  {% for b in findings %}
+  <div class="budget-item">
+    <div class="budget-status-bar status-{{ b.status }}"></div>
+    <div class="budget-info">
+      <div class="budget-name">{{ b.budget_name }}</div>
+      <div class="budget-reason">{{ b.breach_reason or b.budget_type + ' · ' + b.time_unit }}</div>
+      {% if b.utilization_pct is not none %}
+      <div class="util-bar-wrap">
+        <div class="util-bar-track" style="width:140px">
+          <div class="util-bar-fill status-{{ b.status }}"
+               style="width:{{ [b.utilization_pct, 100] | min | int }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="budget-amounts">
+      <div class="budget-spend">
+        {{ "$%.2f" | format(b.actual_spend) if b.actual_spend is not none else '—' }}
+      </div>
+      <div class="budget-limit">of ${{ "%.2f"|format(b.limit_amount) }}</div>
+      <div style="margin-top:4px">
+        <span class="badge badge-{{ b.status }}">{{ b.status }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,84 @@
+@import "../../AWS Costing Dashboard/tokens.css";
+
+body {
+  font-size: 15px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+.side-item,
+.pill-tab,
+.fmt-tile,
+.check-row,
+.check {
+  cursor: pointer !important;
+}
+
+.loading {
+  padding: 20px 24px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.err {
+  color: var(--neg);
+  font-family: var(--font-mono);
+}
+
+.simple-bars {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  height: 220px;
+}
+
+.simple-bars .bar {
+  flex: 1;
+  border-radius: 8px 8px 4px 4px;
+  background: linear-gradient(180deg, var(--grad-a), var(--grad-c));
+  min-height: 4px;
+  position: relative;
+}
+
+.simple-bars .bar .label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -20px;
+  color: var(--ink-4);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kpi-value {
+  font-size: 30px !important;
+}
+
+.tbl th {
+  font-size: 11px !important;
+}
+
+.tbl td {
+  font-size: 13px !important;
+}
+
+.recon-stat-val {
+  font-size: 26px !important;
+}

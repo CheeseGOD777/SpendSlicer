@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — aws-cost-ultra{% endblock %}
+{% block topbar_title %}Overview{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-title">Cost Overview</div>
+  <div class="page-subtitle">AWS spend · {{ active_profile }} · {{ period }} · pre-credit (matches Billing console)</div>
+</div>
+
+<div id="cost-summary-wrap"
+     hx-get="/api/cost/summary?profile={{ active_profile }}&period={{ period }}"
+     hx-trigger="load">
+  <div class="stats-grid">
+    {% for _ in range(4) %}
+    <div class="stat-card">
+      <div class="skeleton skel-line-sm mb-4" style="width:60%"></div>
+      <div class="skeleton skel-line-lg mt-2" style="width:80%"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="main-side mt-6">
+  <div>
+    <div class="card mb-6">
+      <div class="card-header">
+        <div class="section-title">Top Services</div>
+        <a href="/services?profile={{ active_profile }}&period={{ period }}"
+           style="color:var(--amber);font-size:12px;font-weight:600;">View all →</a>
+      </div>
+      <div id="service-table-wrap"
+           hx-get="/api/cost/services?profile={{ active_profile }}&period={{ period }}&limit=8"
+           hx-trigger="load">
+        <div style="padding:8px 16px">
+          {% for _ in range(6) %}
+          <div class="skeleton skel-table-row mb-4"></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-6">
+      <div class="card-header">
+        <div class="section-title">Top 10 Resources</div>
+        <a href="/resources?profile={{ active_profile }}&period={{ period }}&region=all"
+           style="color:var(--amber);font-size:12px;font-weight:600;">View all →</a>
+      </div>
+      <div id="top-resources-wrap"
+           hx-get="/api/resources/top?profile={{ active_profile }}&period={{ period }}&region=all&limit=10"
+           hx-trigger="load delay:300ms">
+        <div style="padding:8px 16px">
+          {% for _ in range(5) %}
+          <div class="skeleton skel-table-row mb-4"></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="section-title">6-month Trend</div>
+      </div>
+      <div class="card-body">
+        <div id="trend-chart-wrap"
+             hx-get="/api/cost/trend-chart?profile={{ active_profile }}&period=3m"
+             hx-trigger="load" style="height:220px">
+          <div class="skeleton skel-chart" style="height:220px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <div class="section-title">Budget Alerts</div>
+      </div>
+      <div id="budget-alerts-wrap"
+           hx-get="/api/budgets?profile={{ active_profile }}"
+           hx-trigger="load delay:400ms">
+        <div style="padding:16px">
+          {% for _ in range(3) %}
+          <div class="skeleton skel-table-row mb-4"></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-6">
+      <div class="card-header">
+        <div class="section-title">Waste Radar</div>
+        <a href="/audit?profile={{ active_profile }}&region=all"
+           style="color:var(--amber);font-size:12px;font-weight:600;">Audit →</a>
+      </div>
+      <div id="audit-mini-wrap"
+           hx-get="/api/audit/summary?profile={{ active_profile }}&region=all"
+           hx-trigger="load delay:800ms">
+        <div style="padding:16px">
+          <div class="skeleton skel-line mb-4" style="width:70%"></div>
+          <div class="skeleton skel-line" style="width:55%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

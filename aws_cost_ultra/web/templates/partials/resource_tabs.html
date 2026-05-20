@@ -1,0 +1,27 @@
+{# Service filter tabs. Tabs are generated from the user's active services,
+   not hardcoded. Clicking swaps the #resource-wrap body in place. #}
+<div class="audit-tabs" style="margin-bottom:18px;flex-wrap:wrap;gap:6px">
+  <button class="audit-tab {% if not active_service %}active{% endif %}"
+          hx-get="/api/resources?profile={{ profile }}&period={{ period }}&region={{ region }}"
+          hx-target="#resource-wrap"
+          hx-swap="innerHTML"
+          hx-on::after-request="htmx.ajax('GET', '/api/resources/services?profile={{ profile }}&period={{ period }}&region={{ region }}', '#service-tabs')">
+    All
+    <span class="text-muted text-xs" style="margin-left:6px">
+      {% set grand = services_summary | sum(attribute='total') %}
+      ${{ "%.2f"|format(grand) }}
+    </span>
+  </button>
+
+  {% for s in services_summary %}
+  <button class="audit-tab {% if active_service == s.service %}active{% endif %}"
+          hx-get="/api/resources?profile={{ profile }}&period={{ period }}&region={{ region }}&service={{ s.service }}"
+          hx-target="#resource-wrap"
+          hx-swap="innerHTML"
+          hx-on::after-request="htmx.ajax('GET', '/api/resources/services?profile={{ profile }}&period={{ period }}&region={{ region }}&active_service={{ s.service }}', '#service-tabs')"
+          title="{{ s.count }} resource{{ '' if s.count == 1 else 's' }} · ${{ '%.2f'|format(s.total) }}">
+    {{ s.service }}
+    <span class="text-muted text-xs" style="margin-left:6px">${{ "%.2f"|format(s.total) }}</span>
+  </button>
+  {% endfor %}
+</div>

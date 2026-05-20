@@ -1,0 +1,125 @@
+"""DynamoDB table attribution — conservative, activity-weighted.
+
+We only attribute CE DynamoDB spend to tables with observed usage over
+the selected window (ConsumedRead/WriteCapacityUnits). If no activity
+signal is available, we return no per-resource rows and leave that
+spend in service-level aggregate drift to avoid false positives.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+import boto3
+from botocore.exceptions import ClientError
+
+from .base import AttributedResource, tags_to_dict
+
+
+def attribute_dynamodb(
+    session: boto3.Session,
+    window_start: datetime,
+    window_end: datetime,
+    region: str,
+    ce_service_total_usd: float = 0.0,
+) -> list[AttributedResource]:
+    ddb = session.client("dynamodb", region_name=region)
+    try:
+        tables: list[str] = []
+        for page in ddb.get_paginator("list_tables").paginate():
+            tables.extend(page.get("TableNames", []))
+    except ClientError:
+        return []
+    if not tables:
+        return []
+
+    # Describe each table for metadata + size.
+    descs: list[dict] = []
+    for name in tables:
+        try:
+            d = ddb.describe_table(TableName=name).get("Table", {})
+            descs.append(d)
+        except ClientError:
+            pass
+
+    # Usage weights from CloudWatch consumed capacity units.
+    # For long windows / many tables, skip CW fan-out for responsiveness.
+    usage_weights: dict[str, float] = {}
+    window_days = max((window_end - window_start).days, 1)
+    should_collect_cw = window_days <= 45 and len(descs) <= 50
+    if should_collect_cw:
+        try:
+            cw = session.client("cloudwatch", region_name=region)
+            for d in descs:
+                name = d.get("TableName", "")
+                if not name:
+                    continue
+                total = 0.0
+                for metric_name in ("ConsumedReadCapacityUnits", "ConsumedWriteCapacityUnits"):
+                    try:
+                        resp = cw.get_metric_statistics(
+                            Namespace="AWS/DynamoDB",
+                            MetricName=metric_name,
+                            Dimensions=[{"Name": "TableName", "Value": name}],
+                            StartTime=window_start,
+                            EndTime=window_end,
+                            Period=86400,
+                            Statistics=["Sum"],
+                        )
+                        total += sum(p.get("Sum", 0.0) for p in resp.get("Datapoints", []))
+                    except ClientError:
+                        continue
+                usage_weights[name] = float(total)
+        except ClientError:
+            usage_weights = {}
+
+    weight_sum = sum(usage_weights.values()) or 0.0
+    if ce_service_total_usd > 0 and weight_sum <= 0 and should_collect_cw:
+        # Accuracy-first: if we attempted activity weighting and got no signal,
+        # avoid inventing per-table cost splits.
+        return []
+    rows: list[AttributedResource] = []
+    for d in descs:
+        name = d.get("TableName", "?")
+        size_bytes = d.get("TableSizeBytes", 0)
+        item_count = d.get("ItemCount", 0)
+        billing_mode = d.get("BillingModeSummary", {}).get("BillingMode", "PROVISIONED")
+        state = d.get("TableStatus", "ACTIVE").lower()
+
+        if weight_sum > 0:
+            share = usage_weights.get(name, 0.0) / weight_sum
+        elif not should_collect_cw and ce_service_total_usd > 0:
+            # Fast mode fallback: proportion by current table size.
+            size_sum = sum(dd.get("TableSizeBytes", 0) for dd in descs) or 0.0
+            share = (size_bytes / size_sum) if size_sum > 0 else (1.0 / len(descs))
+        elif ce_service_total_usd > 0:
+            share = 1.0 / len(descs)
+        else:
+            share = 0.0
+        cost = ce_service_total_usd * share
+
+        tags: dict = {}
+        try:
+            tag_resp = ddb.list_tags_of_resource(ResourceArn=d.get("TableArn", "")).get("Tags", [])
+            tags = tags_to_dict(tag_resp)
+        except ClientError:
+            pass
+
+        rows.append(AttributedResource(
+            service="DynamoDB",
+            resource_id=name,
+            name=tags.get("Name", name),
+            resource_type=billing_mode.lower(),
+            state=state,
+            cost_usd=cost,
+            hours=0.0,
+            region=region,
+            tags=tags,
+            attributes={
+                "size_gb": round(size_bytes / (1024 ** 3), 3),
+                "item_count": item_count,
+                "arn": d.get("TableArn"),
+            },
+        ))
+    rows.sort(key=lambda r: r.cost_usd, reverse=True)
+    return rows
