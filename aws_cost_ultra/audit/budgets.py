@@ -7,12 +7,15 @@ Reads the account's configured AWS Budgets and flags any that are:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
+
+log = logging.getLogger(__name__)
 
 
 class BudgetStatus(str, Enum):
@@ -77,7 +80,8 @@ def get_budget_findings(
     try:
         sts = session.client("sts")
         account_id = sts.get_caller_identity().get("Account")
-    except Exception:
+    except Exception as exc:
+        log.warning("budget fetch: STS get_caller_identity failed: %s", type(exc).__name__, exc_info=True)
         account_id = None
 
     if not account_id:

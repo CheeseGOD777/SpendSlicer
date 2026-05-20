@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from aws_cost_ultra.aws.session import list_profiles, load_profile_bundle
 from aws_cost_ultra.web.deps import cache_get, cache_set
+
+log = logging.getLogger(__name__)
 
 
 def get_profile_choices() -> list[dict]:
@@ -31,7 +34,8 @@ def get_profile_choices() -> list[dict]:
                     "label": label,
                     "account_id": bundle.account_id,
                 })
-            except Exception:
+            except Exception as exc:
+                log.warning("get_profile_choices: failed to load bundle for profile=%r: %s", profile_name, type(exc).__name__, exc_info=True)
                 choices.append({
                     "profile": profile_name,
                     "label": profile_name,

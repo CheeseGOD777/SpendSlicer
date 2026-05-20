@@ -6,10 +6,13 @@ and uvicorn --reload cycles without losing warm entries.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from pathlib import Path
 from typing import Any, Optional
+
+log = logging.getLogger(__name__)
 
 import boto3
 from fastapi import Query
@@ -87,8 +90,8 @@ def schedule_refresh(key: str, producer) -> None:
             val = producer()
             if val is not None:
                 cache_set(key, val)
-        except Exception:
-            pass  # swallow — a failed refresh leaves the stale value in place
+        except Exception as exc:
+            log.warning("background cache refresh failed for key=%s: %s", key, type(exc).__name__, exc_info=True)
         finally:
             with _refresh_lock:
                 _refreshing.discard(key)
@@ -104,7 +107,8 @@ def get_session(profile: str = Query("default")) -> boto3.Session:
     p = profile if profile and profile != "default" else None
     try:
         return make_session(profile=p)
-    except Exception:
+    except Exception as exc:
+        log.warning("get_session: make_session failed for profile=%r, falling back to default session: %s", p, type(exc).__name__, exc_info=True)
         return boto3.Session()
 
 

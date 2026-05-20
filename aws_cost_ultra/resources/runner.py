@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 import boto3
+
+log = logging.getLogger(__name__)
 
 from aws_cost_ultra.aws.cost_explorer import CostExplorerClient
 from aws_cost_ultra.aws.session import accessible_regions
@@ -70,7 +73,8 @@ def enumerate_all(
     try:
         ce_groups = ce_hl.get_cost_by_service(window, spec=spec)
         ce_total_by_service = {g.primary_key(): g.value.amount_usd for g in ce_groups}
-    except Exception:
+    except Exception as exc:
+        log.warning("enumerate_all: CE get_cost_by_service failed, continuing without CE totals: %s", type(exc).__name__, exc_info=True)
         ce_total_by_service = {}
 
     def ce_total(label: str) -> float:
@@ -101,8 +105,8 @@ def enumerate_all(
                 for fut in as_completed(futs):
                     try:
                         out.extend(fut.result())
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("resource fanout failed for region=%s: %s", futs[fut], type(exc).__name__, exc_info=True)
             return out
 
         if want_it("RDS"):
@@ -125,8 +129,8 @@ def enumerate_all(
                     names = live_instance_names(session, reg)
                     try:
                         out.extend(attribute_ebs(session, ws, we, reg, names))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("EBS attribution failed for region=%s: %s", reg, type(exc).__name__, exc_info=True)
                 return out
             jobs["ebs"] = pool.submit(_ebs_all_regions)
 
@@ -138,7 +142,8 @@ def enumerate_all(
             if key in jobs:
                 try:
                     buckets[label] = jobs[key].result()
-                except Exception:
+                except Exception as exc:
+                    log.warning("resource enumeration job failed for service=%s: %s", label, type(exc).__name__, exc_info=True)
                     buckets[label] = []
 
     other_pool = ce_total_by_service.get("EC2 - Other", 0.0)

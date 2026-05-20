@@ -12,6 +12,7 @@ Phase 2 additions:
 from __future__ import annotations
 
 import configparser
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -20,6 +21,8 @@ from typing import Callable, Optional, TypeVar
 
 import boto3
 from botocore.exceptions import ClientError
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -127,7 +130,8 @@ def account_alias_for(session: boto3.Session) -> Optional[str]:
         resp = session.client("iam").list_account_aliases()
         aliases = resp.get("AccountAliases", [])
         return aliases[0] if aliases else None
-    except Exception:
+    except Exception as exc:
+        log.warning("account_alias_for: IAM list_account_aliases failed: %s", type(exc).__name__, exc_info=True)
         return None
 
 
@@ -146,7 +150,8 @@ def accessible_regions(session: boto3.Session) -> list[str]:
         ec2 = session.client("ec2", region_name="us-east-1")
         resp = ec2.describe_regions(Filters=[{"Name": "opt-in-status", "Values": ["opt-in-not-required", "opted-in"]}])
         return sorted(r["RegionName"] for r in resp.get("Regions", []))
-    except Exception:
+    except Exception as exc:
+        log.warning("accessible_regions: EC2 describe_regions failed, using fallback list: %s", type(exc).__name__, exc_info=True)
         return list(_FALLBACK_REGIONS)
 
 
@@ -201,8 +206,8 @@ def all_profile_bundles(
                 bundle = fut.result()
                 if bundle.account_id:  # skip profiles that can't authenticate
                     bundles.append(bundle)
-            except Exception:
-                pass  # invalid / expired credentials — skip silently
+            except Exception as exc:
+                log.warning("all_profile_bundles: skipping profile=%s due to error: %s", futures[fut], type(exc).__name__, exc_info=True)
 
     return sorted(bundles, key=lambda b: b.profile)
 

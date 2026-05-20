@@ -22,10 +22,13 @@ Design rules
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
 import boto3
+
+log = logging.getLogger(__name__)
 
 from aws_cost_ultra.core.filters import (
     CostFilterSpec,
@@ -271,7 +274,8 @@ class CostExplorerClient:
             total = float(resp["Total"]["Amount"])
             from aws_cost_ultra.web.middleware import get_current_counter  # local import avoids cycle
             get_current_counter().add(pages=1)
-        except Exception:  # CE raises on short windows / insufficient data
+        except Exception as exc:  # CE raises on short windows / insufficient data
+            log.warning("cost_forecast failed (likely short window or insufficient data): %s", type(exc).__name__, exc_info=True)
             return None
         return CostValue(
             amount_usd=total,

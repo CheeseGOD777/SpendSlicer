@@ -11,11 +11,14 @@ Finds resources that are running but generating little or no value:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -156,7 +159,8 @@ def find_orphaned_snapshots(session: boto3.Session, region: str) -> list[IdleRes
         sts = session.client("sts")
         try:
             account_id = sts.get_caller_identity()["Account"]
-        except Exception:
+        except Exception as exc:
+            log.warning("orphaned snapshot check: STS get_caller_identity failed: %s", type(exc).__name__, exc_info=True)
             return results
 
         # Collect existing volume IDs

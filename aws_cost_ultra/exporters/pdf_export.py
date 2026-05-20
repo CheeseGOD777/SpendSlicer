@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Union
 
 from .base import ExportResult
+
+log = logging.getLogger(__name__)
 
 
 def _paths() -> tuple[Path, Path]:
@@ -58,8 +61,8 @@ def export_pdf(
         )
         try:
             tmp_input_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("pdf_export: failed to remove temp input file %s: %s", tmp_input_path, type(exc).__name__, exc_info=True)
 
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip() or "Puppeteer PDF render failed"
