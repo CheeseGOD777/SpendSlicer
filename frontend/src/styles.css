@@ -82,3 +82,22 @@ button,
 .recon-stat-val {
   font-size: 26px !important;
 }
+
+/* Cost badge — fixed bottom-right, shows CE spend this session */
+.cost-badge {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 100;
+}
+.cost-badge button {
+  background: var(--surface-2, #1c1f24);
+  color: var(--text-2, #aab1bd);
+  border: 1px solid var(--border, #2a2f37);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  cursor: pointer;
+}
+.cost-badge button:hover { color: var(--text-1, #e5e7eb); }

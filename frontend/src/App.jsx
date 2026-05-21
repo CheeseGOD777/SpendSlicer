@@ -3,6 +3,7 @@ import { api } from "./api";
 import { useAsyncData } from "./hooks/useAsyncData";
 import { useDebounced } from "./hooks/useDebounced";
 import { AreaChart, Donut, StackedBars } from "./charts";
+import { CostBadge } from "./components/CostBadge";
 
 const NAV = [
   { group: "Visibility", items: ["dashboard", "services", "resources", "trends"] },
@@ -367,6 +368,7 @@ export default function App() {
         <Topbar context={contextState.data} period={period} setPeriod={setPeriod} profile={profile} setProfile={setProfile} />
         <div className="scroll">{pageNode}</div>
       </div>
+      <CostBadge />
     </div>
   );
 }

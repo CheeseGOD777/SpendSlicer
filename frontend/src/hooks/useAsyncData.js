@@ -1,5 +1,6 @@
 // frontend/src/hooks/useAsyncData.js
 import { useEffect, useRef, useState } from "react";
+import { recordCe } from "../lib/ceMeter";
 
 /**
  * loader receives an AbortSignal and should pass it to fetch().
@@ -19,6 +20,7 @@ export function useAsyncData(loader, deps) {
     loader(ctrl.signal)
       .then(({ data, meta }) => {
         if (ctrl.signal.aborted) return;
+        recordCe(meta);
         setState({ loading: false, error: "", data, meta: meta || null });
       })
       .catch((err) => {
