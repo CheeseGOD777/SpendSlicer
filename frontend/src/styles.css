@@ -101,3 +101,27 @@ button,
   cursor: pointer;
 }
 .cost-badge button:hover { color: var(--text-1, #e5e7eb); }
+
+/* Mobile responsive tables */
+@media (max-width: 760px) {
+  .tbl-res, .tbl-svc {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .split { grid-template-columns: 1fr; }
+}
+
+/* Skeleton loaders */
+.skel {
+  background: linear-gradient(90deg, #1c1f24 0%, #262a30 50%, #1c1f24 100%);
+  background-size: 200% 100%;
+  animation: skel 1.2s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes skel { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
+.skel-kpi { height: 72px; margin: 4px; }
+.skel-row { height: 28px; margin: 4px 0; }
+
+/* pill-tab button reset */
+.pill-tab { border: none; background: none; cursor: pointer; }

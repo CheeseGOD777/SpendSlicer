@@ -35,15 +35,21 @@ function Sidebar({ page, setPage, profile, collapsed, setCollapsed }) {
         <div className="side-logo"><span style={{ fontWeight: 700 }}>CL</span></div>
         <div className="side-brand-text"><span className="name">Cloud Ledger</span><span className="tag">finops</span></div>
       </div>
-      <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)}>{collapsed ? ">" : "<"}</button>
+      <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>{collapsed ? ">" : "<"}</button>
       <nav style={{ flex: 1 }}>
         {NAV.map((g) => (
           <div key={g.group} className="side-group">
             <div className="side-group-label">{g.group}</div>
             {g.items.map((it) => (
-              <div key={it} className={`side-item ${page === it ? "active" : ""}`} onClick={() => setPage(it)}>
+              <button
+                key={it}
+                type="button"
+                className={`side-item ${page === it ? "active" : ""}`}
+                onClick={() => setPage(it)}
+                aria-current={page === it ? "page" : undefined}
+              >
                 <span className="side-item-text">{TITLES[it]}</span>
-              </div>
+              </button>
             ))}
           </div>
         ))}
@@ -120,13 +126,13 @@ function DashboardPage({ profile, period }) {
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-title"><div><h2>Spend Trend</h2><div className="sub" style={{ marginTop: 4 }}>Selected period trend</div></div></div>
-        {trend.loading ? <div className="loading">Loading trend...</div> : trendRows.length >= 2 ? <StackedBars data={trendRows} keys={["Spend"]} /> : <div className="loading">No chart for this period (needs at least 2 points).</div>}
+        {trend.loading ? <div className="skel skel-kpi" /> : trendRows.length >= 2 ? <StackedBars data={trendRows} keys={["Spend"]} /> : <div className="loading">No chart for this period (needs at least 2 points).</div>}
       </div>
 
       <div className="split" style={{ marginTop: 16 }}>
         <div className="card">
           <div className="card-title"><div><h2>Service mix</h2><div className="sub" style={{ marginTop: 4 }}>Share of period spend</div></div></div>
-          {services.loading ? <div className="loading">Loading service mix...</div> : (
+          {services.loading ? <div className="skel skel-kpi" /> : (
             <Donut data={serviceRows.map((row, idx) => ({
               key: String(idx), name: (row.name || "Unknown").replace("Amazon ", "").replace("AWS ", ""), value: value(row.cost), color: palette[idx % palette.length],
             }))} />
@@ -135,7 +141,7 @@ function DashboardPage({ profile, period }) {
 
         <div className="tbl-wrap">
           <div className="tbl-head-row"><h2>Top 10 resources</h2></div>
-          {topResources.loading ? <div className="loading">Loading resources...</div> : topResources.error ? (
+          {topResources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : topResources.error ? (
             <div className="loading err">Resources unavailable right now. Please retry in a few seconds.</div>
           ) : topResources.data?.warming ? (
             <div className="loading">Resource attribution is warming up. Refresh in a few seconds.</div>
@@ -169,7 +175,7 @@ function ServicesPage({ profile, period }) {
   return (
     <div className="page">
       <div className="page-h"><h1>Services</h1></div>
-      {services.loading ? <div className="loading">Loading services...</div> : (
+      {services.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
         <div className="tbl-wrap">
           <table className="tbl">
             <thead><tr><th>Service</th><th style={{ textAlign: "right" }}>Cost</th><th style={{ textAlign: "right" }}>Share</th><th style={{ textAlign: "right" }}>Vs prior</th></tr></thead>
@@ -213,11 +219,11 @@ function ResourcesPage({ profile, period }) {
       <div className="svc-filter-row">
         <span className="svc-filter-label">Services:</span>
         <div className="pill-tabs">
-          <div className={`pill-tab ${service === "" ? "dark" : ""}`} onClick={() => setService("")}>All</div>
-          {(d.services_summary || []).map((s) => <div key={s.service} className={`pill-tab ${service === s.service ? "dark" : ""}`} onClick={() => setService(s.service)}>{s.service}</div>)}
+          <button type="button" className={`pill-tab ${service === "" ? "dark" : ""}`} onClick={() => setService("")}>All</button>
+          {(d.services_summary || []).map((s) => <button key={s.service} type="button" className={`pill-tab ${service === s.service ? "dark" : ""}`} onClick={() => setService(s.service)}>{s.service}</button>)}
         </div>
       </div>
-      {resources.loading ? <div className="loading">Loading resources...</div> : (
+      {resources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
         <div className="tbl-wrap">
           <table className="tbl tbl-res">
             <thead><tr><th>Service</th><th>Resource</th><th>Resource ID</th><th style={{ textAlign: "right" }}>Hours</th><th style={{ textAlign: "right" }}>Cost</th></tr></thead>
@@ -259,7 +265,7 @@ function TrendsPage({ profile, period }) {
       <div className="card">
         <div className="card-title"><h2>Spend trend</h2></div>
         {trend.loading ? (
-          <div className="loading">Loading trend...</div>
+          <div className="skel skel-kpi" />
         ) : values.length >= 1 ? (
           <AreaChart data={values} labels={labels.map((l) => l.slice(5))} />
         ) : (
@@ -268,7 +274,7 @@ function TrendsPage({ profile, period }) {
       </div>
       <div className="tbl-wrap">
         <div className="tbl-head-row"><h2>Period breakdown</h2></div>
-        {trendTable.loading ? <div className="loading">Loading period breakdown...</div> : (
+        {trendTable.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
           <table className="tbl">
             <thead><tr><th>Period</th><th style={{ textAlign: "right" }}>Cost</th></tr></thead>
             <tbody>{(trendTable.data?.points || []).map((p) => <tr key={p.period}><td>{p.period}</td><td className="num">{usd(p.cost)}</td></tr>)}</tbody>
@@ -289,7 +295,7 @@ function AuditPage({ profile }) {
       <div className="grid-2" style={{ marginBottom: 16 }}>
         <div className="budget-card">
           <h2 style={{ marginTop: 0 }}>Budgets</h2>
-          {budgets.loading ? <div className="loading">Loading budgets...</div> : (budgets.data?.findings || []).map((b, idx) => (
+          {budgets.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /></div> : (budgets.data?.findings || []).map((b, idx) => (
             <div className="budget-row" key={b.budget_name}>
               <div className="budget-head"><span className="budget-name">{b.budget_name}</span><span className="budget-amt">{usd(value(b.actual_spend, b.actual_spend_usd))} / {usd(value(b.limit_amount, b.limit_usd))}</span></div>
               <div className="budget-track"><div className={`budget-fill ${b.status === "breached" ? "danger" : b.status === "warning" ? "warn" : ""}`} style={{ width: `${Math.min(100, value(b.utilization_pct, idx === 0 ? 0 : 10))}%` }} /></div>
