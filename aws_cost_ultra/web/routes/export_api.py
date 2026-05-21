@@ -15,7 +15,7 @@ from aws_cost_ultra.core.types import Granularity
 from aws_cost_ultra.core.service_groups import merge_ec2_service_groups
 from aws_cost_ultra.exporters import ScheduledExportConfig, run_scheduled_export
 from aws_cost_ultra.web.context import friendly_error
-from aws_cost_ultra.web.deps import cache_bust, get_ce_client, get_session, period_to_window
+from aws_cost_ultra.web.deps import cache_bust, get_ce_client, get_cost_source, get_session, period_to_window
 
 router = APIRouter(prefix="/api")
 
@@ -39,20 +39,42 @@ def _safe_filename(name: str | None, ext: str) -> str:
 
 
 def _build_report(profile: str, period: str) -> tuple[dict, object]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from aws_cost_ultra.core.filters import pre_credit_gross
+    from aws_cost_ultra.core.provenance import Provenance
+    from aws_cost_ultra.core.types import CostMetric
+    from aws_cost_ultra.audit.budgets import get_budget_findings
+
     session = get_session(profile)
     ce = get_ce_client(session)
     window = period_to_window(period)
-    from aws_cost_ultra.core.filters import pre_credit_gross
-    from aws_cost_ultra.resources import enumerate_all
-    from aws_cost_ultra.resources.runner import ALL_REGIONS
-    from aws_cost_ultra.audit.budgets import get_budget_findings
-
     spec = pre_credit_gross()
-    services = merge_ec2_service_groups(ce.get_cost_by_service(window, spec=spec))
-    total_cv = ce.get_total_cost(window, spec=spec)
-    resources = enumerate_all(session, window, region=ALL_REGIONS, spec=spec)
-    trend_points = ce.get_trend(window, granularity=Granularity.MONTHLY, spec=spec)
+
+    account_id = session.client("sts").get_caller_identity()["Account"]
+    src = get_cost_source(session)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_matrix = pool.submit(src.get_matrix, profile, account_id, window, spec)
+        f_trend = pool.submit(ce.get_trend, window, Granularity.MONTHLY, spec=spec)
+        f_resources = pool.submit(src.attribute_resources, account_id, window, session=session, spec=spec)
+
+    m = f_matrix.result()
+    trend_points = f_trend.result()
+    raw_resources = f_resources.result()
     budget_findings = [b.to_dict() for b in get_budget_findings(session)]
+
+    prov = Provenance(
+        source="cost_explorer",
+        metric=CostMetric.UNBLENDED,
+        window=window,
+        timezone_str="UTC",
+        excluded_record_types=tuple(spec.excluded_record_types) if spec.excluded_record_types else None,
+        included_record_types=tuple(spec.included_record_types) if spec.included_record_types else None,
+        group_by=("SERVICE",),
+        filter_summary=spec.summary(),
+    )
+    services = merge_ec2_service_groups(m.to_grouped_cost_list(prov))
 
     report = {
         "title": "Cloud Ledger Cost Report",
@@ -61,12 +83,12 @@ def _build_report(profile: str, period: str) -> tuple[dict, object]:
         "period": period,
         "generated_at": _dt.datetime.utcnow().isoformat() + "Z",
         "cost_basis": "Pre-credit gross (excludes Credit/Refund/Upfront)",
-        "total_cost_usd": total_cv.amount_usd,
+        "total_cost_usd": m.total(),
         "top_services": [
             {"service": g.primary_key(), "cost_usd": g.value.amount_usd}
             for g in services[:25]
         ],
-        "top_resources": [r.to_dict() for r in resources[:50]],
+        "top_resources": sorted(raw_resources, key=lambda r: r.get("cost", 0.0), reverse=True)[:50],
         "trend_points": [
             {"period": p.period_start[:7], "cost_usd": round(p.value.amount_usd, 3)}
             for p in trend_points
