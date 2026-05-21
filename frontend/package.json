@@ -11,8 +11,7 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.15.4",
-    "puppeteer": "^24.8.2"
+    "recharts": "^2.15.4"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
