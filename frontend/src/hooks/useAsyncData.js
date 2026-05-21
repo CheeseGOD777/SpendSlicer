@@ -18,10 +18,11 @@ export function useAsyncData(loader, deps) {
     setState((prev) => ({ ...prev, loading: true, error: "" }));
 
     loader(ctrl.signal)
-      .then(({ data, meta }) => {
+      .then((result) => {
         if (ctrl.signal.aborted) return;
+        const { data, meta } = result ?? {};
         recordCe(meta);
-        setState({ loading: false, error: "", data, meta: meta || null });
+        setState({ loading: false, error: "", data: data ?? null, meta: meta || null });
       })
       .catch((err) => {
         if (ctrl.signal.aborted || err?.name === "AbortError") return;
