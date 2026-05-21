@@ -334,7 +334,7 @@ export default function App() {
   const [profile, setProfile] = useState("default");
   const [period, setPeriod] = useState("mtd");
   const [collapsed, setCollapsed] = useState(false);
-  const contextState = useAsyncData((signal) => api.context("default", "mtd", { signal }), []);
+  const contextState = useAsyncData((signal) => api.context(profile, period, { signal }), [profile, period]);
 
   useEffect(() => {
     if (!contextState.data) return;
