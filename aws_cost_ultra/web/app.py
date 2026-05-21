@@ -62,6 +62,7 @@ def _cur_ingest_worker() -> None:
     if not bucket:
         return
     while True:
+        db = None
         try:
             import boto3
             from aws_cost_ultra.cur.ingestor import CurIngestor
@@ -79,6 +80,9 @@ def _cur_ingest_worker() -> None:
             ).ingest()
         except Exception as exc:
             log.warning("CUR background ingest failed: %s", exc, exc_info=True)
+        finally:
+            if db is not None:
+                db.close()
         time.sleep(interval)
 
 

@@ -63,15 +63,10 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         try:
             account_id = session.client("sts").get_caller_identity()["Account"]
             src = get_cost_source(session)
-            if src._cur is not None and src._cur.has_data(account_id, window):
-                # CUR fast-path: free, named per-resource attribution from local DuckDB.
-                raw_rows = src._cur.attribute_resources(account_id, window)
-                ctx["rows"] = [_normalize_cur_row(r) for r in raw_rows]
-                ctx["cost_basis_label"] = "CUR · unblended · local DuckDB"
-            else:
-                # CE describe-path: existing behaviour unchanged.
-                rows = enumerate_all(session, window, region=region, spec=spec)
-                ctx["rows"] = [r.to_dict() for r in rows]
+            # CostSource handles CUR-first / CE-describe fallback internally.
+            # Both paths return the same simplified dict shape, so always normalize.
+            raw_rows = src.attribute_resources(account_id, window, session=session, spec=spec)
+            ctx["rows"] = [_normalize_cur_row(r) for r in raw_rows]
         except Exception:
             # Any error in CostSource wiring falls back to existing describe path.
             rows = enumerate_all(session, window, region=region, spec=spec)
