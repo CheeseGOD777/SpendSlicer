@@ -226,17 +226,42 @@ function ResourcesPage({ profile, period }) {
       {resources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
         <div className="tbl-wrap">
           <table className="tbl tbl-res">
-            <thead><tr><th>Service</th><th>Resource</th><th>Resource ID</th><th style={{ textAlign: "right" }}>Hours</th><th style={{ textAlign: "right" }}>Cost</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Service</th>
+                <th>Resource ID</th>
+                <th style={{ textAlign: "right" }}>Cost</th>
+              </tr>
+            </thead>
             <tbody>
               {(d.rows || []).map((r) => (
                 <tr key={`${r.service}-${r.resource_id}`}>
-                  <td>{r.service}</td><td>{r.name || "-"}</td><td className="mono">{r.resource_id}</td>
-                  <td className="num">{r.hours && Number(r.hours) > 0 ? Number(r.hours).toFixed(1) : "-"}</td>
-                  <td className="num">{usd(r.cost)}</td>
+                  <td><strong>{r.name || r.resource_id}</strong></td>
+                  <td className="muted">{r.service}</td>
+                  <td>
+                    <button
+                      className="copy-id"
+                      onClick={() => navigator.clipboard?.writeText(r.resource_id)}
+                      title="Copy resource ID"
+                    >
+                      {r.resource_id}
+                    </button>
+                  </td>
+                  <td className="num">{usd(r.cost, 2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {(d.rows || []).length === 0 && !resources.loading && (
+        <div className="empty-state">
+          <p>No resources attributed for this window.</p>
+          <p className="muted">
+            If you just enabled CUR, data takes ~24h to arrive. Run{" "}
+            <code>aws-cost-ultra cur status</code> to check.
+          </p>
         </div>
       )}
     </div>
