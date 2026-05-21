@@ -336,9 +336,11 @@ function ExportPage({ profile, period }) {
 
 export default function App() {
   const [page, setPage] = useState("dashboard");
-  const [profile, setProfile] = useState("default");
-  const [period, setPeriod] = useState("mtd");
+  const [profile, setProfile] = useState(() => localStorage.getItem("acu:profile") || "default");
+  const [period, setPeriod] = useState(() => localStorage.getItem("acu:period") || "mtd");
   const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => { localStorage.setItem("acu:profile", profile); }, [profile]);
+  useEffect(() => { localStorage.setItem("acu:period", period); }, [period]);
   const contextState = useAsyncData((signal) => api.context(profile, period, { signal }), [profile, period]);
 
   useEffect(() => {

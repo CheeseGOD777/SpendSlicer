@@ -1,3 +1,5 @@
+import { readSwr, writeSwr } from "./lib/swrCache";
+
 const toParams = (params) => {
   const q = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -6,16 +8,32 @@ const toParams = (params) => {
   return q.toString();
 };
 
+const cacheKey = (path, params) => `${path}?${toParams(params)}`;
+
 const getJson = async (path, params = {}, opts = {}) => {
+  const key = cacheKey(path, params);
+  const cached = readSwr(key);
+  if (cached?.fresh) {
+    return { data: cached.value, meta: { ceCalls: 0, ceCostUsd: 0, fromCache: "fresh" } };
+  }
+
   const qs = toParams(params);
-  const res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { signal: opts.signal });
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-  const data = await res.json();
-  const meta = {
-    ceCalls: Number(res.headers.get("X-CE-Calls-Spent") || 0),
-    ceCostUsd: Number(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
-  };
-  return { data, meta };
+  try {
+    const res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { signal: opts.signal });
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    const data = await res.json();
+    const meta = {
+      ceCalls: Number(res.headers.get("X-CE-Calls-Spent") || 0),
+      ceCostUsd: Number(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
+      fromCache: null,
+    };
+    writeSwr(key, data);
+    return { data, meta };
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    if (cached) return { data: cached.value, meta: { ceCalls: 0, ceCostUsd: 0, fromCache: "stale" } };
+    throw err;
+  }
 };
 
 export const api = {
