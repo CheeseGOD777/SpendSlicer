@@ -13,4 +13,14 @@ export default defineConfig({
       "/static": backendUrl,
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          recharts: ["recharts"],
+          react: ["react", "react-dom"],
+        },
+      },
+    },
+  },
 });
