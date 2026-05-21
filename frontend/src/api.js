@@ -6,26 +6,33 @@ const toParams = (params) => {
   return q.toString();
 };
 
-const getJson = async (path, params = {}) => {
+const getJson = async (path, params = {}, opts = {}) => {
   const qs = toParams(params);
-  const res = await fetch(`${path}${qs ? `?${qs}` : ""}`);
+  const res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { signal: opts.signal });
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  const meta = {
+    ceCalls: Number(res.headers.get("X-CE-Calls-Spent") || 0),
+    ceCostUsd: Number(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
+  };
+  return { data, meta };
 };
 
 export const api = {
-  context: (profile, period) => getJson("/api/ui/context", { profile, period }),
-  summary: (profile, period) => getJson("/api/cost/summary/data", { profile, period }),
-  services: (profile, period, limit = 0) =>
-    getJson("/api/cost/services/data", { profile, period, limit }),
-  trend: (profile, period) => getJson("/api/cost/trend/data", { profile, period }),
-  trendTable: (profile, period) => getJson("/api/cost/trend-table/data", { profile, period }),
-  resources: (profile, period, region = "all", service = "", limit = 0) =>
-    getJson("/api/resources/data", { profile, period, region, service, limit }),
-  resourcesTop: (profile, period, region = "all", limit = 10) =>
-    getJson("/api/resources/top/data", { profile, period, region, limit }),
-  audit: (profile, region = "all") => getJson("/api/audit/summary/data", { profile, region }),
-  budgets: (profile) => getJson("/api/budgets/data", { profile }),
+  context: (profile, period, opts) => getJson("/api/ui/context", { profile, period }, opts),
+  summary: (profile, period, opts) => getJson("/api/cost/summary/data", { profile, period }, opts),
+  services: (profile, period, limit = 0, opts) =>
+    getJson("/api/cost/services/data", { profile, period, limit }, opts),
+  trend: (profile, period, opts) => getJson("/api/cost/trend/data", { profile, period }, opts),
+  trendTable: (profile, period, opts) =>
+    getJson("/api/cost/trend-table/data", { profile, period }, opts),
+  resources: (profile, period, region = "all", service = "", limit = 0, opts) =>
+    getJson("/api/resources/data", { profile, period, region, service, limit }, opts),
+  resourcesTop: (profile, period, region = "all", limit = 10, opts) =>
+    getJson("/api/resources/top/data", { profile, period, region, limit }, opts),
+  audit: (profile, region = "all", opts) =>
+    getJson("/api/audit/summary/data", { profile, region }, opts),
+  budgets: (profile, opts) => getJson("/api/budgets/data", { profile }, opts),
   downloadExport: async (profile, period, fmt, name = "") => {
     const qs = toParams({ profile, period, fmt, name });
     const res = await fetch(`/api/export/download?${qs}`);

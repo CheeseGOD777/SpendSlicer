@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
+import { useAsyncData } from "./hooks/useAsyncData";
 import { AreaChart, Donut, StackedBars } from "./charts";
 
 const NAV = [
@@ -24,20 +25,6 @@ const usd = (n, dec = 3) =>
 const pct = (n) => `${n >= 0 ? "+" : ""}${Number(n || 0).toFixed(1)}%`;
 const value = (v, fallback = 0) => Number(v ?? fallback);
 
-function useAsyncData(loader, deps) {
-  const [state, setState] = useState({ loading: true, error: "", data: null });
-  useEffect(() => {
-    let active = true;
-    setState((prev) => ({ ...prev, loading: true, error: "" }));
-    loader()
-      .then((data) => active && setState({ loading: false, error: "", data }))
-      .catch((err) => active && setState((prev) => ({ loading: false, error: err?.message || "Failed", data: prev.data })));
-    return () => {
-      active = false;
-    };
-  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
-  return state;
-}
 
 function Sidebar({ page, setPage, profile, collapsed, setCollapsed }) {
   return (
@@ -102,10 +89,10 @@ function Kpi({ label, valueText, delta, note }) {
 }
 
 function DashboardPage({ profile, period }) {
-  const summary = useAsyncData(() => api.summary(profile, period), [profile, period]);
-  const services = useAsyncData(() => api.services(profile, period, 8), [profile, period]);
-  const trend = useAsyncData(() => api.trend(profile, period), [profile, period]);
-  const topResources = useAsyncData(() => api.resourcesTop(profile, period, "all", 10), [profile, period]);
+  const summary = useAsyncData((signal) => api.summary(profile, period, { signal }), [profile, period]);
+  const services = useAsyncData((signal) => api.services(profile, period, 8, { signal }), [profile, period]);
+  const trend = useAsyncData((signal) => api.trend(profile, period, { signal }), [profile, period]);
+  const topResources = useAsyncData((signal) => api.resourcesTop(profile, period, "all", 10, { signal }), [profile, period]);
   if (summary.error) return <div className="loading err">{summary.error}</div>;
 
   const s = summary.data || {};
@@ -175,7 +162,7 @@ function DashboardPage({ profile, period }) {
 }
 
 function ServicesPage({ profile, period }) {
-  const services = useAsyncData(() => api.services(profile, period), [profile, period]);
+  const services = useAsyncData((signal) => api.services(profile, period, 0, { signal }), [profile, period]);
   if (services.error) return <div className="loading err">{services.error}</div>;
   return (
     <div className="page">
@@ -198,7 +185,7 @@ function ServicesPage({ profile, period }) {
 
 function ResourcesPage({ profile, period }) {
   const [service, setService] = useState("");
-  const resources = useAsyncData(() => api.resources(profile, period, "all", service), [profile, period, service]);
+  const resources = useAsyncData((signal) => api.resources(profile, period, "all", service, 0, { signal }), [profile, period, service]);
   if (resources.error) return <div className="loading err">{resources.error}</div>;
   const d = resources.data || {};
   return (
@@ -245,8 +232,8 @@ function ResourcesPage({ profile, period }) {
 }
 
 function TrendsPage({ profile, period }) {
-  const trend = useAsyncData(() => api.trend(profile, period), [profile, period]);
-  const trendTable = useAsyncData(() => api.trendTable(profile, period), [profile, period]);
+  const trend = useAsyncData((signal) => api.trend(profile, period, { signal }), [profile, period]);
+  const trendTable = useAsyncData((signal) => api.trendTable(profile, period, { signal }), [profile, period]);
   if (trend.error) return <div className="loading err">{trend.error}</div>;
   const values = trend.data?.values || [];
   const labels = trend.data?.labels || [];
@@ -287,8 +274,8 @@ function TrendsPage({ profile, period }) {
 }
 
 function AuditPage({ profile }) {
-  const audit = useAsyncData(() => api.audit(profile, "all"), [profile]);
-  const budgets = useAsyncData(() => api.budgets(profile), [profile]);
+  const audit = useAsyncData((signal) => api.audit(profile, "all", { signal }), [profile]);
+  const budgets = useAsyncData((signal) => api.budgets(profile, { signal }), [profile]);
   if (audit.error) return <div className="loading err">{audit.error}</div>;
   return (
     <div className="page">
@@ -347,7 +334,7 @@ export default function App() {
   const [profile, setProfile] = useState("default");
   const [period, setPeriod] = useState("mtd");
   const [collapsed, setCollapsed] = useState(false);
-  const contextState = useAsyncData(() => api.context("default", "mtd"), []);
+  const contextState = useAsyncData((signal) => api.context("default", "mtd", { signal }), []);
 
   useEffect(() => {
     if (!contextState.data) return;
