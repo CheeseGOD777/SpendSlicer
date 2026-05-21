@@ -55,11 +55,17 @@ def get_parquet_glob(con: duckdb.DuckDBPyConnection) -> str | None:
 
 
 def ensure_line_items_view(con: duckdb.DuckDBPyConnection) -> None:
-    """Project a stable narrow view over the wide CUR Parquet."""
+    """Project a stable narrow view over the wide CUR Parquet.
+
+    No-ops silently when the glob path resolves to zero files so that the
+    ingestor can call this unconditionally after every sync — including the
+    very first sync before any Parquet file is present on disk.
+    """
     glob = get_parquet_glob(con)
     if not glob:
         return
-    con.execute(f"""
+    try:
+        con.execute(f"""
         CREATE OR REPLACE VIEW {LINE_ITEMS_VIEW} AS
         SELECT
           CAST(bill_billing_period_start_date AS DATE) AS billing_period_start,
@@ -77,3 +83,10 @@ def ensure_line_items_view(con: duckdb.DuckDBPyConnection) -> None:
           line_item_currency_code             AS currency
         FROM read_parquet('{glob}', union_by_name=true)
     """)
+    except Exception as exc:  # noqa: BLE001
+        # DuckDB raises IOException when the glob matches no files.
+        # Swallow it — the view will be (re-)created on the next ingest.
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "ensure_line_items_view: no parquet files yet (%s)", exc
+        )
