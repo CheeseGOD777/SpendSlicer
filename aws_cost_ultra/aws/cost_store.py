@@ -141,3 +141,19 @@ class CostStore:
             swr_seconds=swr,
         )
         return m
+
+    def attribute_resources_via_describe(self, account_id, window, *, session, spec) -> list[dict]:
+        """Fallback when CUR is not available: describe + USAGE_TYPE attribution."""
+        from aws_cost_ultra.resources.runner import enumerate_all
+        resources = enumerate_all(session=session, window=window, spec=spec)
+        return [
+            {
+                "resource_id": r.resource_id,
+                "name": r.name or r.resource_id,
+                "service": r.service,
+                "tags": r.tags or {},
+                "cost": round(r.cost_usd, 4),
+                "usage_amount": None,
+            }
+            for r in resources
+        ]
