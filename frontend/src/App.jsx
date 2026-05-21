@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { useAsyncData } from "./hooks/useAsyncData";
+import { useDebounced } from "./hooks/useDebounced";
 import { AreaChart, Donut, StackedBars } from "./charts";
 
 const NAV = [
@@ -185,7 +186,11 @@ function ServicesPage({ profile, period }) {
 
 function ResourcesPage({ profile, period }) {
   const [service, setService] = useState("");
-  const resources = useAsyncData((signal) => api.resources(profile, period, "all", service, 0, { signal }), [profile, period, service]);
+  const debouncedService = useDebounced(service, 300);
+  const resources = useAsyncData(
+    (signal) => api.resources(profile, period, "all", debouncedService, 0, { signal }),
+    [profile, period, debouncedService]
+  );
   if (resources.error) return <div className="loading err">{resources.error}</div>;
   const d = resources.data || {};
   return (
