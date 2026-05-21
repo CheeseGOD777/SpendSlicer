@@ -61,8 +61,7 @@ all = [
 ]
 
 [project.scripts]
-# Populated in Phase 6
-# aws-cost-ultra = "aws_cost_ultra.cli.main:app"
+aws-cost-ultra = "aws_cost_ultra.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/TirthTeraiya/aws-cost-ultra"

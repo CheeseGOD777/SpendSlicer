@@ -1,11 +1,25 @@
-"""Typer + Rich CLI — populated in Phase 6.
+"""aws-cost-ultra CLI dispatcher.
 
-Entry point will be `aws_cost_ultra.cli.main:app` (see pyproject.toml).
-Command surface:
-    summary   — cost summary for profile(s)
-    trend     — 6-month monthly trend
-    audit     — untagged / idle / budget breaches
-    resources — resource-level attribution drill-down
-    export    — multi-format report generation
-    serve     — launch the web UI
+Currently implemented subcommands:
+  cur status          — show CUR warehouse status
+  cur ingest          — pull new CUR partitions from S3 into DuckDB
+  cur reset           — wipe the local CUR database
 """
+
+from __future__ import annotations
+
+import sys
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv[1:]
+    if args and args[0] == "cur":
+        from aws_cost_ultra.cur.setup import main as cur_main
+        return cur_main(args[1:])
+    print("aws-cost-ultra: available subcommands: cur")
+    print("Run `aws-cost-ultra cur --help` for usage.")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
