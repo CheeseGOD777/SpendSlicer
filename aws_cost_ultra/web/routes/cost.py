@@ -13,7 +13,7 @@ from aws_cost_ultra.core.service_groups import merge_ec2_service_groups, service
 from aws_cost_ultra.core.time_windows import current_month, remainder_of_current_month
 from aws_cost_ultra.core.types import Granularity
 from aws_cost_ultra.web.context import friendly_error
-from aws_cost_ultra.web.deps import cache_get, cache_set, get_ce_client, get_session, period_to_window
+from aws_cost_ultra.web.deps import cache_get, cache_set, get_ce_client, get_cost_source, get_session, period_to_window
 from aws_cost_ultra.web.render import render
 
 router = APIRouter(prefix="/api/cost")
@@ -52,17 +52,16 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         fcast_window = remainder_of_current_month()
         mtd_window = window if period == "mtd" else current_month()
 
-        from aws_cost_ultra.aws.cost_store import CostStore
-        store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
+        src = get_cost_source(session)
 
         # Parallelism is preserved — but everything is cached so cold cost
         # is at most 3 CE calls (window, prev, optional mtd) + 1 forecast.
         with ThreadPoolExecutor(max_workers=4) as pool:
-            f_matrix = pool.submit(store.get_matrix, profile, account_id, window, spec)
-            f_prev_matrix = pool.submit(store.get_matrix, profile, account_id, prev_window, spec)
+            f_matrix = pool.submit(src.get_matrix, profile, account_id, window, spec)
+            f_prev_matrix = pool.submit(src.get_matrix, profile, account_id, prev_window, spec)
             f_forecast = pool.submit(ce.get_forecast, fcast_window, spec=spec)
             f_mtd_matrix = (
-                pool.submit(store.get_matrix, profile, account_id, mtd_window, spec)
+                pool.submit(src.get_matrix, profile, account_id, mtd_window, spec)
                 if period != "mtd" else None
             )
 
@@ -112,18 +111,16 @@ def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
     ctx: dict = {"error": None, "services": [], "total": 0.0, "cost_basis_label": ""}
     try:
         session = get_session(profile)
-        ce = get_ce_client(session)
         spec = pre_credit_gross()
         account_id = session.client("sts").get_caller_identity()["Account"]
         window = period_to_window(period)
         prev_window = period_to_window("last_month") if period in ("mtd", "30d") else period_to_window("3m")
 
-        from aws_cost_ultra.aws.cost_store import CostStore
-        store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
+        src = get_cost_source(session)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
-            f_matrix = pool.submit(store.get_matrix, profile, account_id, window, spec)
-            f_prev = pool.submit(store.get_matrix, profile, account_id, prev_window, spec)
+            f_matrix = pool.submit(src.get_matrix, profile, account_id, window, spec)
+            f_prev = pool.submit(src.get_matrix, profile, account_id, prev_window, spec)
 
         m = f_matrix.result()
         prev_m = f_prev.result()

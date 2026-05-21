@@ -189,3 +189,41 @@ def period_to_window(period: str):
     }
     fn = mapping.get(period, current_month)
     return fn()
+
+
+# ---------------------------------------------------------------------------
+# CUR + CostSource
+# ---------------------------------------------------------------------------
+import duckdb as _duckdb  # noqa: E402
+
+from aws_cost_ultra.cur.schema import (  # noqa: E402
+    connect as _cur_connect,
+    ensure_line_items_view as _cur_ensure_view,
+    get_parquet_glob as _cur_get_glob,
+)
+from aws_cost_ultra.cur.store import CurStore  # noqa: E402
+from aws_cost_ultra.aws.cost_source import CostSource  # noqa: E402
+from aws_cost_ultra.aws.cost_store import CostStore  # noqa: E402
+
+_CUR_DB_PATH = Path(os.environ.get("ACU_CUR_DB", str(_CACHE_DIR / "cur.duckdb")))
+
+_cur_conn: "_duckdb.DuckDBPyConnection | None" = None
+_cur_conn_lock = threading.Lock()
+
+
+def get_cur_store() -> "CurStore | None":
+    global _cur_conn
+    if not _CUR_DB_PATH.exists():
+        return None
+    with _cur_conn_lock:
+        if _cur_conn is None:
+            _cur_conn = _cur_connect(_CUR_DB_PATH)
+            if _cur_get_glob(_cur_conn):
+                _cur_ensure_view(_cur_conn)
+    return CurStore(_cur_conn)
+
+
+def get_cost_source(session: boto3.Session) -> CostSource:
+    ce = get_ce_client(session)
+    cost_store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
+    return CostSource(cur_store=get_cur_store(), cost_store=cost_store)

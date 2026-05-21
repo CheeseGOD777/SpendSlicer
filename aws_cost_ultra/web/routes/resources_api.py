@@ -14,6 +14,7 @@ from aws_cost_ultra.web.deps import (
     cache_get_swr,
     cache_set,
     get_ce_client,
+    get_cost_source,
     get_session,
     period_to_window,
     schedule_refresh,
@@ -21,6 +22,23 @@ from aws_cost_ultra.web.deps import (
 from aws_cost_ultra.web.render import render
 
 router = APIRouter(prefix="/api/resources")
+
+
+def _normalize_cur_row(r: dict) -> dict:
+    """Pad a CUR-sourced resource dict to match the shape of AttributedResource.to_dict()."""
+    return {
+        "service": r.get("service", ""),
+        "resource_id": r.get("resource_id", ""),
+        "name": r.get("name", r.get("resource_id", "")),
+        "type": "",
+        "state": "",
+        "cost": r.get("cost", 0.0),
+        "hours": 0.0,
+        "region": "",
+        "waste_reason": None,
+        "attributes": {},
+        "tags": r.get("tags", {}),
+    }
 
 
 def build_resources_ctx(profile: str, period: str, region: str) -> dict:
@@ -40,8 +58,25 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         session = get_session(profile)
         spec = pre_credit_gross()
         window = period_to_window(period)
-        rows = enumerate_all(session, window, region=region, spec=spec)
-        ctx["rows"] = [r.to_dict() for r in rows]
+
+        # Try CostSource path: CUR when available, describe-based fallback otherwise.
+        try:
+            account_id = session.client("sts").get_caller_identity()["Account"]
+            src = get_cost_source(session)
+            if src._cur is not None and src._cur.has_data(account_id, window):
+                # CUR fast-path: free, named per-resource attribution from local DuckDB.
+                raw_rows = src._cur.attribute_resources(account_id, window)
+                ctx["rows"] = [_normalize_cur_row(r) for r in raw_rows]
+                ctx["cost_basis_label"] = "CUR · unblended · local DuckDB"
+            else:
+                # CE describe-path: existing behaviour unchanged.
+                rows = enumerate_all(session, window, region=region, spec=spec)
+                ctx["rows"] = [r.to_dict() for r in rows]
+        except Exception:
+            # Any error in CostSource wiring falls back to existing describe path.
+            rows = enumerate_all(session, window, region=region, spec=spec)
+            ctx["rows"] = [r.to_dict() for r in rows]
+
         ctx["total"] = sum(r["cost"] for r in ctx["rows"])
 
         svc_totals: dict[str, float] = {}
