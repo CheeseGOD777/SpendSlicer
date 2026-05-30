@@ -157,6 +157,25 @@ class CostExplorerClient:
             group_by=(("DIMENSION", "USAGE_TYPE"),),
         )
 
+    def get_cost_by_service_and_usage_type(
+        self,
+        window: TimeWindow,
+        metric: CostMetric = CostMetric.UNBLENDED,
+        spec: Optional[CostFilterSpec] = None,
+        granularity: Granularity = Granularity.MONTHLY,
+    ) -> list[GroupedCost]:
+        """Two-dim grouping: SERVICE × USAGE_TYPE. One CE call covers
+        composition for every service in the window — used by the
+        Services page to show what's actually driving each service's bill.
+        """
+        return self._grouped_query(
+            window=window,
+            metric=metric,
+            spec=spec or console_default(),
+            granularity=granularity,
+            group_by=(("DIMENSION", "SERVICE"), ("DIMENSION", "USAGE_TYPE")),
+        )
+
     def get_cost_by_tag(
         self,
         window: TimeWindow,
@@ -274,8 +293,14 @@ class CostExplorerClient:
             total = float(resp["Total"]["Amount"])
             from aws_cost_ultra.web.middleware import get_current_counter  # local import avoids cycle
             get_current_counter().add(pages=1)
-        except Exception as exc:  # CE raises on short windows / insufficient data
-            log.warning("cost_forecast failed (likely short window or insufficient data): %s", type(exc).__name__, exc_info=True)
+        except Exception as exc:
+            # CE refuses to forecast on <~7 days of history. That's the common
+            # case for fresh accounts — log quietly without a stack trace.
+            # Anything else gets the full traceback so real failures surface.
+            if type(exc).__name__ == "DataUnavailableException":
+                log.info("cost_forecast skipped: insufficient historical data for this window")
+            else:
+                log.warning("cost_forecast failed: %s", type(exc).__name__, exc_info=True)
             return None
         return CostValue(
             amount_usd=total,

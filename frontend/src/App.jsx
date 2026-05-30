@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { useAsyncData } from "./hooks/useAsyncData";
 import { useDebounced } from "./hooks/useDebounced";
-import { AreaChart, Donut, StackedBars } from "./charts";
+import { Donut, StackedBars } from "./charts";
 import { CostBadge } from "./components/CostBadge";
 
 const NAV = [
-  { group: "Visibility", items: ["dashboard", "services", "resources", "trends"] },
+  { group: "Visibility", items: ["dashboard", "services", "resources"] },
   { group: "FinOps", items: ["audit", "export"] },
 ];
 
@@ -14,26 +14,41 @@ const TITLES = {
   dashboard: "Dashboard",
   services: "Services",
   resources: "Resources",
-  trends: "Trends",
   audit: "Audit",
   export: "Export",
 };
 
-const usd = (n, dec = 3) =>
-  `$${Number(n || 0).toLocaleString("en-US", {
-    minimumFractionDigits: dec,
-    maximumFractionDigits: dec,
-  })}`;
+const usd = (n, dec = 3) => {
+  let num = Number(n || 0);
+  // CE sometimes returns tiny negative floats (-0.00001); clamp to zero before display
+  if (num < 0 && Math.abs(num) < 5 * Math.pow(10, -(dec + 1))) num = 0;
+  return `$${num.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
+};
 const pct = (n) => `${n >= 0 ? "+" : ""}${Number(n || 0).toFixed(1)}%`;
 const value = (v, fallback = 0) => Number(v ?? fallback);
+
+const PERIOD_LABEL = {
+  mtd: "month to date",
+  "30d": "last 30 days",
+  "60d": "last 60 days",
+  "90d": "last 90 days",
+  last_month: "previous month",
+  "3m": "rolling 3 months",
+  "6m": "trailing 6 months",
+  "12m": "trailing 12 months",
+};
+const periodLabel = (p) => PERIOD_LABEL[p] || p;
 
 
 function Sidebar({ page, setPage, profile, collapsed, setCollapsed }) {
   return (
     <aside className="side">
       <div className="side-brand">
-        <div className="side-logo"><span style={{ fontWeight: 700 }}>CL</span></div>
-        <div className="side-brand-text"><span className="name">Cloud Ledger</span><span className="tag">finops</span></div>
+        <div className="side-logo">CL</div>
+        <div className="side-brand-text">
+          <span className="name">Cloud Ledger</span>
+          <span className="tag">FinOps Edition</span>
+        </div>
       </div>
       <button className="collapse-btn" onClick={() => setCollapsed((v) => !v)} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>{collapsed ? ">" : "<"}</button>
       <nav style={{ flex: 1 }}>
@@ -89,34 +104,55 @@ function Kpi({ label, valueText, delta, note }) {
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{valueText}</div>
       <div className="kpi-foot">
-        {delta !== undefined ? <span className={`delta ${delta <= 0 ? "pos" : "neg"}`}>{pct(delta)}</span> : <span className="delta flat">—</span>}
-        {note ? <span className="delta-note">{note}</span> : null}
+        {delta !== undefined && <span className={`delta ${delta <= 0 ? "pos" : "neg"}`}>{pct(delta)}</span>}
+        {note && <span className="delta-note">{note}</span>}
       </div>
     </div>
   );
 }
 
 function DashboardPage({ profile, period }) {
+  const [warmingTick, setWarmingTick] = useState(0);
   const summary = useAsyncData((signal) => api.summary(profile, period, { signal }), [profile, period]);
   const services = useAsyncData((signal) => api.services(profile, period, 8, { signal }), [profile, period]);
   const trend = useAsyncData((signal) => api.trend(profile, period, { signal }), [profile, period]);
-  const topResources = useAsyncData((signal) => api.resourcesTop(profile, period, "all", 10, { signal }), [profile, period]);
+  const topResources = useAsyncData(
+    (signal) => api.resourcesTop(profile, period, "all", 10, { signal }),
+    [profile, period, warmingTick],
+  );
+  // While the backend is still computing resource attribution, poll every
+  // 3s so the user doesn't have to manually refresh.
+  useEffect(() => {
+    if (!topResources.data?.warming) return;
+    const t = setTimeout(() => setWarmingTick((n) => n + 1), 3000);
+    return () => clearTimeout(t);
+  }, [topResources.data?.warming, warmingTick]);
+
   if (summary.error) return <div className="loading err">{summary.error}</div>;
 
   const s = summary.data || {};
   const serviceRows = (services.data?.services || []).slice(0, 6);
-  const trendRows = (trend.data?.values || []).map((cost, idx) => ({
-    month: trend.data?.labels?.[idx]?.slice(5) || trend.data?.labels?.[idx] || String(idx + 1),
+  const trendValues = trend.data?.values || [];
+  const trendLabels = trend.data?.labels || [];
+  const trendRows = trendValues.map((cost, idx) => ({
+    month: trendLabels[idx]?.slice(5) || trendLabels[idx] || String(idx + 1),
     Spend: value(cost),
   }));
-  const spark = trend.data?.values || [];
+  const trendMax = Math.max(...trendValues, 0);
+  const trendAvg = trendValues.length ? trendValues.reduce((a, b) => a + value(b), 0) / trendValues.length : 0;
+  const trendPeakLabel = trendLabels[trendValues.findIndex((x) => x === trendMax)] || "";
   const topResourcesRows = (topResources.data?.rows || []).slice(0, 10);
   const topResourceMax = Math.max(...topResourcesRows.map((r) => value(r.cost, 1)), 1);
-  const palette = ["#0E9F6E", "#3B5BDB", "#A24DDD", "#DB8E1B", "#11AABE", "#555555"];
+  const palette = ["#1C5E3F", "#2D5478", "#9E3B2E", "#A77418", "#1F6E6E", "#5D3A53", "#6E6048", "#847A6E"];
 
   return (
     <div className="page">
-      <div className="page-h"><div><h1>Dashboard</h1><div className="sub">{profile} · period={period}</div></div></div>
+      <div className="page-h">
+        <div>
+          <h1>Dashboard</h1>
+          <div className="sub">{profile} <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span> {periodLabel(period)}</div>
+        </div>
+      </div>
       <div className="kpi-row">
         <Kpi label="Period spend" valueText={summary.loading ? "..." : usd(s.total_mtd)} delta={value(s.change_pct)} note="vs previous period" />
         <Kpi label="Previous period" valueText={summary.loading ? "..." : usd(s.total_prev)} note="comparison baseline" />
@@ -124,12 +160,27 @@ function DashboardPage({ profile, period }) {
         <Kpi label="Top service" valueText={summary.loading ? "..." : s.top_service_name || "-"} note={usd(s.top_service_cost)} />
       </div>
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title"><div><h2>Spend Trend</h2><div className="sub" style={{ marginTop: 4 }}>Selected period trend</div></div></div>
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="card-title">
+          <div>
+            <h2>Spend Trend</h2>
+            <div className="sub" style={{ marginTop: 4 }}>
+              Selected period trend
+              {trendValues.length > 0 && (
+                <>
+                  {" · "}peak <span className="mono">{usd(trendMax, 2)}</span>
+                  {trendPeakLabel ? ` on ${trendPeakLabel.slice(5) || trendPeakLabel}` : ""}
+                  {" · "}avg <span className="mono">{usd(trendAvg, 2)}</span>
+                  {" · "}{trendValues.length} samples
+                </>
+              )}
+            </div>
+          </div>
+        </div>
         {trend.loading ? <div className="skel skel-kpi" /> : trendRows.length >= 2 ? <StackedBars data={trendRows} keys={["Spend"]} /> : <div className="loading">No chart for this period (needs at least 2 points).</div>}
       </div>
 
-      <div className="split" style={{ marginTop: 16 }}>
+      <div className="split" style={{ marginTop: 24 }}>
         <div className="card">
           <div className="card-title"><div><h2>Service mix</h2><div className="sub" style={{ marginTop: 4 }}>Share of period spend</div></div></div>
           {services.loading ? <div className="skel skel-kpi" /> : (
@@ -169,20 +220,104 @@ function DashboardPage({ profile, period }) {
   );
 }
 
+const COMPOSITION_BUCKETS = ["compute", "storage", "data-transfer", "network", "other"];
+const COMPOSITION_COLORS = {
+  compute: "#1C5E3F",        // emerald
+  storage: "#2D5478",        // navy
+  "data-transfer": "#A77418", // ochre
+  network: "#1F6E6E",        // deep teal
+  other: "#847A6E",          // stone
+};
+
+function ServiceComposition({ buckets }) {
+  if (!buckets) return <div className="comp-empty">No composition data for this service.</div>;
+  const total = COMPOSITION_BUCKETS.reduce((s, k) => s + value(buckets[k]), 0);
+  if (total <= 0) return <div className="comp-empty">No composition data for this service.</div>;
+  const rows = COMPOSITION_BUCKETS
+    .map((k) => ({ key: k, amount: value(buckets[k]), pct: (value(buckets[k]) / total) * 100 }))
+    .filter((r) => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  return (
+    <div className="comp-wrap">
+      <div className="comp-bar">
+        {rows.map((r) => (
+          <span
+            key={r.key}
+            className="comp-bar-seg"
+            style={{ width: `${r.pct}%`, background: COMPOSITION_COLORS[r.key] }}
+            title={`${r.key}: ${usd(r.amount, 2)} (${r.pct.toFixed(1)}%)`}
+          />
+        ))}
+      </div>
+      <ul className="comp-legend">
+        {rows.map((r) => (
+          <li key={r.key}>
+            <span className="comp-dot" style={{ background: COMPOSITION_COLORS[r.key] }} />
+            <span className="comp-key">{r.key}</span>
+            <span className="comp-amt mono">{usd(r.amount, 2)}</span>
+            <span className="comp-pct mono">{r.pct.toFixed(1)}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ServicesPage({ profile, period }) {
   const services = useAsyncData((signal) => api.services(profile, period, 0, { signal }), [profile, period]);
+  const composition = useAsyncData(
+    (signal) => api.servicesComposition(profile, period, { signal }),
+    [profile, period],
+  );
+  const [expanded, setExpanded] = useState(null);
   if (services.error) return <div className="loading err">{services.error}</div>;
+  const compMap = composition.data?.services || {};
+  const rows = services.data?.services || [];
   return (
     <div className="page">
-      <div className="page-h"><h1>Services</h1></div>
+      <div className="page-h">
+        <div>
+          <h1>Services</h1>
+          <div className="sub">Click a row to see what's driving its bill (compute, storage, data transfer, network).</div>
+        </div>
+      </div>
       {services.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
         <div className="tbl-wrap">
-          <table className="tbl">
-            <thead><tr><th>Service</th><th style={{ textAlign: "right" }}>Cost</th><th style={{ textAlign: "right" }}>Share</th><th style={{ textAlign: "right" }}>Vs prior</th></tr></thead>
+          <table className="tbl tbl-svc">
+            <thead>
+              <tr>
+                <th style={{ width: 28 }} />
+                <th>Service</th>
+                <th style={{ textAlign: "right" }}>Cost</th>
+                <th style={{ textAlign: "right" }}>Share</th>
+                <th style={{ textAlign: "right" }}>Vs prior</th>
+              </tr>
+            </thead>
             <tbody>
-              {(services.data?.services || []).map((row) => (
-                <tr key={row.name}><td>{row.name}</td><td className="num">{usd(row.cost)}</td><td className="num">{Number(row.pct_of_total || 0).toFixed(1)}%</td><td className="num">{pct(row.change_pct || 0)}</td></tr>
-              ))}
+              {rows.map((row) => {
+                const isOpen = expanded === row.name;
+                const toggle = () => setExpanded(isOpen ? null : row.name);
+                return (
+                  <Fragment key={row.name}>
+                    <tr className={`svc-row ${isOpen ? "open" : ""}`} onClick={toggle}>
+                      <td className="svc-caret">{isOpen ? "▾" : "▸"}</td>
+                      <td>{row.name}</td>
+                      <td className="num">{usd(row.cost)}</td>
+                      <td className="num">{Number(row.pct_of_total || 0).toFixed(1)}%</td>
+                      <td className="num">{pct(row.change_pct || 0)}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="svc-row-detail">
+                        <td colSpan={5}>
+                          {composition.loading
+                            ? <div className="skel skel-row" />
+                            : <ServiceComposition buckets={compMap[row.name]} />}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -202,6 +337,12 @@ function ResourcesPage({ profile, period }) {
   const d = resources.data || {};
   return (
     <div className="page">
+      <div className="page-h">
+        <div>
+          <h1>Resources</h1>
+          <div className="sub">Per-resource attribution reconciled against Cost Explorer total</div>
+        </div>
+      </div>
       <div className="recon-card">
         <div className="recon-head">
           <h2>Reconciliation Overview</h2>
@@ -251,6 +392,14 @@ function ResourcesPage({ profile, period }) {
                   <td className="num">{usd(r.cost, 2)}</td>
                 </tr>
               ))}
+              {!service && value(d.unattributed) > 0.01 && (
+                <tr className="unattributed-row">
+                  <td><span className="unattributed-label">Unattributed charges</span><span className="unattributed-hint"> — likely terminated / deleted resources</span></td>
+                  <td className="muted">—</td>
+                  <td className="muted faint">gap vs CE total</td>
+                  <td className="num">{usd(d.unattributed, 2)}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -268,56 +417,19 @@ function ResourcesPage({ profile, period }) {
   );
 }
 
-function TrendsPage({ profile, period }) {
-  const trend = useAsyncData((signal) => api.trend(profile, period, { signal }), [profile, period]);
-  const trendTable = useAsyncData((signal) => api.trendTable(profile, period, { signal }), [profile, period]);
-  if (trend.error) return <div className="loading err">{trend.error}</div>;
-  const values = trend.data?.values || [];
-  const labels = trend.data?.labels || [];
-  const total = values.reduce((s, x) => s + value(x), 0);
-  const max = Math.max(...values, 0);
-  const avg = values.length ? total / values.length : 0;
-  const peakI = values.findIndex((x) => x === max);
-  return (
-    <div className="page">
-      <div className="page-h"><div><h1>Trends</h1><div className="sub">Time-series spend analysis</div></div></div>
-      <div className="kpi-row" style={{ marginBottom: 16 }}>
-        <Kpi label="Period total" valueText={usd(total)} note={`window ${period}`} />
-        <Kpi label="Highest point" valueText={usd(max)} note={labels[peakI] || "-"} />
-        <Kpi label="Average" valueText={usd(avg)} note="rolling average" />
-        <Kpi label="Samples" valueText={String(values.length)} note="points in chart" />
-      </div>
-      <div className="card">
-        <div className="card-title"><h2>Spend trend</h2></div>
-        {trend.loading ? (
-          <div className="skel skel-kpi" />
-        ) : values.length >= 1 ? (
-          <AreaChart data={values} labels={labels.map((l) => l.slice(5))} />
-        ) : (
-          <div className="loading">No trend chart data for this period.</div>
-        )}
-      </div>
-      <div className="tbl-wrap">
-        <div className="tbl-head-row"><h2>Period breakdown</h2></div>
-        {trendTable.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
-          <table className="tbl">
-            <thead><tr><th>Period</th><th style={{ textAlign: "right" }}>Cost</th></tr></thead>
-            <tbody>{(trendTable.data?.points || []).map((p) => <tr key={p.period}><td>{p.period}</td><td className="num">{usd(p.cost)}</td></tr>)}</tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function AuditPage({ profile }) {
   const audit = useAsyncData((signal) => api.audit(profile, "all", { signal }), [profile]);
   const budgets = useAsyncData((signal) => api.budgets(profile, { signal }), [profile]);
   if (audit.error) return <div className="loading err">{audit.error}</div>;
   return (
     <div className="page">
-      <div className="page-h"><h1>Audit</h1></div>
-      <div className="grid-2" style={{ marginBottom: 16 }}>
+      <div className="page-h">
+        <div>
+          <h1>Audit</h1>
+          <div className="sub">Budgets, idle resources, untagged spend</div>
+        </div>
+      </div>
+      <div className="grid-2" style={{ marginBottom: 20 }}>
         <div className="budget-card">
           <h2 style={{ marginTop: 0 }}>Budgets</h2>
           {budgets.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /></div> : (budgets.data?.findings || []).map((b, idx) => (
@@ -355,12 +467,29 @@ function ExportPage({ profile, period }) {
   };
   return (
     <div className="page">
-      <div className="page-h"><h1>Export</h1></div>
-      <div className="card">
-        <div className="form-row"><label>Format</label><select className="btn-ctl" value={fmt} onChange={(e) => setFmt(e.target.value)}><option value="pdf">PDF</option><option value="csv">CSV</option><option value="json">JSON</option></select></div>
-        <div className="form-row"><label>File name (optional)</label><input type="text" placeholder={`cloud_ledger_report.${fmt}`} value={fileName} onChange={(e) => setFileName(e.target.value)} /></div>
-        <button className="btn btn-primary" onClick={runExport} disabled={running}>{running ? "Report is generating..." : "Generate report"}</button>
-        {status ? <div style={{ marginTop: 12 }} className={status.startsWith("Failed") ? "err" : ""}>{status}</div> : null}
+      <div className="page-h">
+        <div>
+          <h1>Export</h1>
+          <div className="sub">Generate a snapshot of this window for sharing or archiving</div>
+        </div>
+      </div>
+      <div className="card" style={{ maxWidth: 560 }}>
+        <div className="form-row">
+          <label>Format</label>
+          <select value={fmt} onChange={(e) => setFmt(e.target.value)}>
+            <option value="pdf">PDF</option>
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </select>
+        </div>
+        <div className="form-row">
+          <label>File name (optional)</label>
+          <input type="text" placeholder={`cloud_ledger_report.${fmt}`} value={fileName} onChange={(e) => setFileName(e.target.value)} />
+        </div>
+        <button className="btn btn-primary" onClick={runExport} disabled={running}>
+          {running ? "Generating…" : "Generate report"}
+        </button>
+        {status ? <div style={{ marginTop: 14, fontFamily: "var(--font-mono)", fontSize: 12.5, color: status.startsWith("Failed") || status.startsWith("Export") ? "var(--neg)" : "var(--ink-3)" }}>{status}</div> : null}
       </div>
     </div>
   );
@@ -386,7 +515,6 @@ export default function App() {
   const pageNode = useMemo(() => {
     if (page === "services") return <ServicesPage profile={profile} period={period} />;
     if (page === "resources") return <ResourcesPage profile={profile} period={period} />;
-    if (page === "trends") return <TrendsPage profile={profile} period={period} />;
     if (page === "audit") return <AuditPage profile={profile} />;
     if (page === "export") return <ExportPage profile={profile} period={period} />;
     return <DashboardPage profile={profile} period={period} />;

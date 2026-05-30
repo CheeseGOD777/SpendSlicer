@@ -225,6 +225,95 @@ def api_cost_services_data(
     return JSONResponse(ctx)
 
 
+# ---------------------------------------------------------------------------
+# Service composition (USAGE_TYPE bucketing) — what's actually driving each
+# service's spend: compute vs storage vs data-transfer vs network vs other.
+# Single CE call (SERVICE × USAGE_TYPE) covers every service in the window.
+# ---------------------------------------------------------------------------
+
+_COMPOSITION_BUCKETS = ("compute", "storage", "data-transfer", "network", "other")
+_EC2_MERGED_NAME = "Amazon Elastic Compute Cloud"
+_EC2_RAW_NAMES = frozenset({
+    "Amazon Elastic Compute Cloud - Compute",
+    "EC2 - Other",
+})
+
+
+def _bucket_for_usage_type(usage_type: str) -> str:
+    ut = usage_type or ""
+    if "DataTransfer" in ut:
+        return "data-transfer"
+    network_markers = (
+        "NatGateway", "LoadBalancer", "LCU", "ElasticIP", "PublicIPv4",
+        "VPN", "VpcEndpoint", "TransitGateway", "DirectConnect",
+    )
+    if any(m in ut for m in network_markers):
+        return "network"
+    storage_markers = (
+        "Storage", "EBS:", "Snapshot", "Piops", "IOUsage",
+        "ByteHrs", "TimedStorage",
+    )
+    if any(m in ut for m in storage_markers):
+        return "storage"
+    compute_markers = (
+        "BoxUsage", "SpotUsage", "HeavyUsage", "DedicatedUsage",
+        "InstanceUsage", "Lambda-GB-Second", "Lambda-Edge",
+        "Multi-AZ", "ServerlessUsage", "GB-Hours",
+    )
+    if any(m in ut for m in compute_markers):
+        return "compute"
+    return "other"
+
+
+def _build_services_composition_ctx(profile: str, period: str) -> dict:
+    ctx: dict = {"error": None, "services": {}, "cost_basis_label": ""}
+    try:
+        session = get_session(profile)
+        ce = get_ce_client(session)
+        spec = pre_credit_gross()
+        window = period_to_window(period)
+        groups = ce.get_cost_by_service_and_usage_type(window, spec=spec)
+
+        services: dict[str, dict] = {}
+        for g in groups:
+            if len(g.key) < 2:
+                continue
+            svc, ut = g.key[0], g.key[1]
+            amount = g.value.amount_usd
+            if amount <= 0:
+                continue
+            if svc in _EC2_RAW_NAMES:
+                svc = _EC2_MERGED_NAME
+            bucket = _bucket_for_usage_type(ut)
+            entry = services.setdefault(svc, {b: 0.0 for b in _COMPOSITION_BUCKETS})
+            entry[bucket] += amount
+
+        ctx["services"] = {
+            svc: {**buckets, "total": sum(buckets.values())}
+            for svc, buckets in services.items()
+        }
+        ctx["buckets"] = list(_COMPOSITION_BUCKETS)
+        ctx["cost_basis_label"] = spec.summary() or "Pre-credit gross usage"
+    except Exception as exc:
+        ctx["error"] = friendly_error(exc)
+    return ctx
+
+
+@router.get("/services/composition/data")
+def api_cost_services_composition_data(
+    profile: str = Query("default"),
+    period: str = Query("mtd"),
+):
+    ckey = f"services_composition_json:{profile}:{period}"
+    cached = cache_get(ckey)
+    if cached:
+        return JSONResponse(cached)
+    ctx = _build_services_composition_ctx(profile, period)
+    if ctx.get("error") is None:
+        cache_set(ckey, ctx)
+    return JSONResponse(ctx)
+
+
 @router.get("/trend/data")
 def api_trend_data(profile: str = Query("default"), period: str = Query("3m")):
     gran = _trend_granularity_for_period(period)

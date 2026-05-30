@@ -47,6 +47,20 @@ def _resolve_regions(session: boto3.Session, region: str) -> list[str]:
     return [region]
 
 
+def _frozen_session(base: boto3.Session, region: str) -> boto3.Session:
+    """Return a new Session with frozen credentials safe to use in a thread."""
+    creds = base.get_credentials()
+    if creds is not None:
+        c = creds.get_frozen_credentials()
+        return boto3.Session(
+            aws_access_key_id=c.access_key,
+            aws_secret_access_key=c.secret_key,
+            aws_session_token=c.token,
+            region_name=region,
+        )
+    return boto3.Session(region_name=region)
+
+
 def enumerate_all(
     session: boto3.Session,
     window: TimeWindow,
@@ -99,7 +113,7 @@ def enumerate_all(
             out: list[AttributedResource] = []
             with ThreadPoolExecutor(max_workers=min(12, len(regions))) as reg_pool:
                 futs = {
-                    reg_pool.submit(fn, session, ws, we, reg, *extra_args): reg
+                    reg_pool.submit(fn, _frozen_session(session, reg), ws, we, reg, *extra_args): reg
                     for reg in regions
                 }
                 for fut in as_completed(futs):
@@ -126,9 +140,10 @@ def enumerate_all(
             def _ebs_all_regions():
                 out: list[AttributedResource] = []
                 for reg in regions:
-                    names = live_instance_names(session, reg)
+                    ts = _frozen_session(session, reg)
+                    names = live_instance_names(ts, reg)
                     try:
-                        out.extend(attribute_ebs(session, ws, we, reg, names))
+                        out.extend(attribute_ebs(ts, ws, we, reg, names))
                     except Exception as exc:
                         log.warning("EBS attribution failed for region=%s: %s", reg, type(exc).__name__, exc_info=True)
                 return out

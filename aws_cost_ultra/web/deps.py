@@ -192,28 +192,29 @@ def period_to_window(period: str):
 
 
 # ---------------------------------------------------------------------------
-# CUR + CostSource
+# CUR + CostSource  (duckdb is optional — imports are lazy so the server
+# starts fine even without the `cur` extras installed)
 # ---------------------------------------------------------------------------
-import duckdb as _duckdb  # noqa: E402
-
-from aws_cost_ultra.cur.schema import (  # noqa: E402
-    connect as _cur_connect,
-    ensure_line_items_view as _cur_ensure_view,
-    get_parquet_glob as _cur_get_glob,
-)
-from aws_cost_ultra.cur.store import CurStore  # noqa: E402
-from aws_cost_ultra.aws.cost_source import CostSource  # noqa: E402
-from aws_cost_ultra.aws.cost_store import CostStore  # noqa: E402
 
 _CUR_DB_PATH = Path(os.environ.get("ACU_CUR_DB", str(_CACHE_DIR / "cur.duckdb")))
 
-_cur_conn: "_duckdb.DuckDBPyConnection | None" = None
+_cur_conn = None  # type: ignore[assignment]
 _cur_conn_lock = threading.Lock()
 
 
-def get_cur_store() -> "CurStore | None":
+def get_cur_store():
+    """Return a CurStore if CUR is configured and duckdb is installed, else None."""
     global _cur_conn
     if not _CUR_DB_PATH.exists():
+        return None
+    try:
+        from aws_cost_ultra.cur.schema import (
+            connect as _cur_connect,
+            ensure_line_items_view as _cur_ensure_view,
+            get_parquet_glob as _cur_get_glob,
+        )
+        from aws_cost_ultra.cur.store import CurStore
+    except ModuleNotFoundError:
         return None
     with _cur_conn_lock:
         if _cur_conn is None:
@@ -223,7 +224,10 @@ def get_cur_store() -> "CurStore | None":
     return CurStore(_cur_conn)
 
 
-def get_cost_source(session: boto3.Session) -> CostSource:
+def get_cost_source(session: boto3.Session):
+    from aws_cost_ultra.aws.cost_source import CostSource
+    from aws_cost_ultra.aws.cost_store import CostStore
+
     ce = get_ce_client(session)
     cost_store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
     return CostSource(cur_store=get_cur_store(), cost_store=cost_store)

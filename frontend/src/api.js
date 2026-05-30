@@ -27,7 +27,11 @@ const getJson = async (path, params = {}, opts = {}) => {
       ceCostUsd: Number(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
       fromCache: null,
     };
-    writeSwr(key, data);
+    // Don't cache transient placeholders (e.g. resources/top returns
+    // {warming:true} while the attribution scan runs in the background);
+    // otherwise the placeholder sticks around for the SWR TTL and the
+    // user keeps seeing "warming up" after the data is ready.
+    if (!data?.warming) writeSwr(key, data);
     return { data, meta };
   } catch (err) {
     if (err?.name === "AbortError") throw err;
@@ -42,8 +46,8 @@ export const api = {
   services: (profile, period, limit = 0, opts) =>
     getJson("/api/cost/services/data", { profile, period, limit }, opts),
   trend: (profile, period, opts) => getJson("/api/cost/trend/data", { profile, period }, opts),
-  trendTable: (profile, period, opts) =>
-    getJson("/api/cost/trend-table/data", { profile, period }, opts),
+  servicesComposition: (profile, period, opts) =>
+    getJson("/api/cost/services/composition/data", { profile, period }, opts),
   resources: (profile, period, region = "all", service = "", limit = 0, opts) =>
     getJson("/api/resources/data", { profile, period, region, service, limit }, opts),
   resourcesTop: (profile, period, region = "all", limit = 10, opts) =>
