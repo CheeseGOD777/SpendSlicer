@@ -4,11 +4,14 @@ from unittest.mock import MagicMock
 from aws_cost_ultra.web.deps import get_ce_client
 
 
-def test_same_thread_returns_cached_instance():
+def test_each_call_constructs_a_fresh_client():
+    # The per-thread id(session) cache was removed (it leaked unboundedly
+    # because make_session builds a new Session per request). Construction
+    # is cheap vs the CE round-trip, so each call now returns a new client.
     sess = MagicMock()
     a = get_ce_client(sess)
     b = get_ce_client(sess)
-    assert a is b
+    assert a is not b
 
 
 def test_different_sessions_get_different_clients():

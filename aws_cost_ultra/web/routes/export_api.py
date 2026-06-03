@@ -39,6 +39,7 @@ def _safe_filename(name: str | None, ext: str) -> str:
 
 
 def _build_report(profile: str, period: str) -> tuple[dict, object]:
+    import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
     from aws_cost_ultra.core.filters import pre_credit_gross
@@ -55,9 +56,17 @@ def _build_report(profile: str, period: str) -> tuple[dict, object]:
     src = get_cost_source(session)
 
     with ThreadPoolExecutor(max_workers=3) as pool:
-        f_matrix = pool.submit(src.get_matrix, profile, account_id, window, spec)
-        f_trend = pool.submit(ce.get_trend, window, Granularity.MONTHLY, spec=spec)
-        f_resources = pool.submit(src.attribute_resources, account_id, window, session=session, spec=spec)
+        # Copy the current context into each worker so the CE call counter
+        # ContextVar (set by CECountingMiddleware) propagates into pool threads.
+        ctx_matrix = contextvars.copy_context()
+        ctx_trend = contextvars.copy_context()
+        ctx_resources = contextvars.copy_context()
+        f_matrix = pool.submit(ctx_matrix.run, src.get_matrix, profile, account_id, window, spec)
+        f_trend = pool.submit(ctx_trend.run, lambda: ce.get_trend(window, Granularity.MONTHLY, spec=spec))
+        f_resources = pool.submit(
+            ctx_resources.run,
+            lambda: src.attribute_resources(account_id, window, session=session, spec=spec),
+        )
 
     m = f_matrix.result()
     trend_points = f_trend.result()
@@ -103,11 +112,14 @@ def api_export_run(
     profile: str = Query("default"),
     period: str = Query("mtd"),
     fmt: str = Query("json"),
-    output_dir: str = Query("./exports"),
 ):
     try:
         report, session = _build_report(profile, period)
-        config = ScheduledExportConfig(output_dir=output_dir, formats=[fmt])
+        # Force a fixed, server-controlled output directory. Never accept a
+        # caller-supplied path (arbitrary dir creation / file write).
+        output_dir = Path(tempfile.gettempdir()) / "cloud-ledger-exports"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        config = ScheduledExportConfig(output_dir=str(output_dir), formats=[fmt])
         results = run_scheduled_export(report, config, session=session)
         r = results[0] if results else None
         return JSONResponse({

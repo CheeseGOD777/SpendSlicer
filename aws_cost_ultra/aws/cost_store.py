@@ -99,10 +99,17 @@ class CostStore:
 
     @staticmethod
     def _is_closed_window(window: _Window) -> bool:
-        """True when the window's end date is in the past (no more updates expected)."""
+        """True when the window's end is safely finalized (no more updates expected).
+
+        Uses UTC (CE is UTC-native) and a 3-day safety margin: AWS keeps
+        applying true-ups to recent days, so a window ending today — or even
+        yesterday — is still mutable. Only treat a window as closed once its
+        end is at least 3 days in the past.
+        """
         _s, e = window.iso()
         end = dt.date.fromisoformat(e)
-        return end <= dt.date.today()
+        today = dt.datetime.now(dt.timezone.utc).date()
+        return end <= today - dt.timedelta(days=3)
 
     def get_matrix(
         self,

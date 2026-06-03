@@ -10,10 +10,21 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import logging
+
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from .base import AttributedResource, tags_to_dict
+
+log = logging.getLogger(__name__)
+
+# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
+
+# FINDING 23: bound the describe_table fan-out on large accounts.
+_MAX_DESCRIBE_TABLES = 200
 
 
 def attribute_dynamodb(
@@ -23,7 +34,7 @@ def attribute_dynamodb(
     region: str,
     ce_service_total_usd: float = 0.0,
 ) -> list[AttributedResource]:
-    ddb = session.client("dynamodb", region_name=region)
+    ddb = session.client("dynamodb", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     try:
         tables: list[str] = []
         for page in ddb.get_paginator("list_tables").paginate():
@@ -32,6 +43,15 @@ def attribute_dynamodb(
         return []
     if not tables:
         return []
+
+    # FINDING 23: cap the describe_table loop so an account with thousands of
+    # tables doesn't trigger an unbounded serial N+1 fan-out.
+    if len(tables) > _MAX_DESCRIBE_TABLES:
+        log.warning(
+            "DynamoDB region=%s has %d tables; describing only first %d",
+            region, len(tables), _MAX_DESCRIBE_TABLES,
+        )
+        tables = tables[:_MAX_DESCRIBE_TABLES]
 
     # Describe each table for metadata + size.
     descs: list[dict] = []
@@ -49,7 +69,7 @@ def attribute_dynamodb(
     should_collect_cw = window_days <= 45 and len(descs) <= 50
     if should_collect_cw:
         try:
-            cw = session.client("cloudwatch", region_name=region)
+            cw = session.client("cloudwatch", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
             for d in descs:
                 name = d.get("TableName", "")
                 if not name:
@@ -98,12 +118,16 @@ def attribute_dynamodb(
             share = 0.0
         cost = ce_service_total_usd * share
 
+        # FINDING 23: only fetch tags for tables we actually attribute cost to,
+        # and only when we're already doing the CW-weighted (non-fast) path —
+        # mirrors the Lambda gating to bound list_tags_of_resource fan-out.
         tags: dict = {}
-        try:
-            tag_resp = ddb.list_tags_of_resource(ResourceArn=d.get("TableArn", "")).get("Tags", [])
-            tags = tags_to_dict(tag_resp)
-        except ClientError:
-            pass
+        if should_collect_cw and cost > 0.001:
+            try:
+                tag_resp = ddb.list_tags_of_resource(ResourceArn=d.get("TableArn", "")).get("Tags", [])
+                tags = tags_to_dict(tag_resp)
+            except ClientError:
+                pass
 
         rows.append(AttributedResource(
             service="DynamoDB",

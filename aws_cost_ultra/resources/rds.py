@@ -5,10 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from aws_cost_ultra.core import pricing
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
+
+# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 
 def attribute_rds(
@@ -17,7 +21,7 @@ def attribute_rds(
     window_end: datetime,
     region: str,
 ) -> list[AttributedResource]:
-    rds = session.client("rds", region_name=region)
+    rds = session.client("rds", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     rows: list[AttributedResource] = []
     try:
         pages = rds.get_paginator("describe_db_instances").paginate()

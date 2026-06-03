@@ -25,6 +25,9 @@ def prewarm_background(profiles: list[str]) -> None:
     for profile in profiles:
         try:
             session = get_session(profile)
+            # get_ce_client no longer caches by id(session) (the unbounded
+            # per-thread leak is resolved upstream in deps.py), so building a
+            # fresh CE client per profile here is fine.
             ce = get_ce_client(session)
             spec = pre_credit_gross()
 

@@ -39,6 +39,41 @@ const PERIOD_LABEL = {
 };
 const periodLabel = (p) => PERIOD_LABEL[p] || p;
 
+// Copy text to clipboard with a fallback for insecure contexts (plain HTTP LAN)
+// where navigator.clipboard is unavailable or its write promise rejects.
+// Returns true on success, false on failure.
+async function copyToClipboard(text) {
+  const value = String(text ?? "");
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch {
+    // fall through to legacy fallback
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// Defensive client-side render cap. The server already bounds the row count,
+// but we paginate to keep the DOM small even at the cap.
+const RESOURCE_PAGE_SIZE = 100;
+// Bounded limit requested from the backend (instead of the old unbounded 0).
+const RESOURCE_FETCH_LIMIT = 200;
+
 
 function Sidebar({ page, setPage, profile, collapsed, setCollapsed }) {
   return (
@@ -270,9 +305,11 @@ function ServicesPage({ profile, period }) {
     [profile, period],
   );
   const [expanded, setExpanded] = useState(null);
+  const [visible, setVisible] = useState(RESOURCE_PAGE_SIZE);
   if (services.error) return <div className="loading err">{services.error}</div>;
   const compMap = composition.data?.services || {};
-  const rows = services.data?.services || [];
+  const allRows = services.data?.services || [];
+  const rows = allRows.slice(0, visible);
   return (
     <div className="page">
       <div className="page-h">
@@ -320,21 +357,57 @@ function ServicesPage({ profile, period }) {
               })}
             </tbody>
           </table>
+          {visible < allRows.length && (
+            <div style={{ marginTop: 12 }}>
+              <button type="button" className="btn" onClick={() => setVisible((v) => v + RESOURCE_PAGE_SIZE)}>
+                Show more ({allRows.length - visible} more)
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
+function CopyIdButton({ resourceId }) {
+  const [copied, setCopied] = useState(null); // null | "ok" | "fail"
+  const onCopy = async () => {
+    const ok = await copyToClipboard(resourceId);
+    setCopied(ok ? "ok" : "fail");
+    setTimeout(() => setCopied(null), 1500);
+  };
+  return (
+    <button
+      className="copy-id"
+      onClick={onCopy}
+      title={copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy resource ID"}
+    >
+      {copied === "ok" ? "Copied ✓" : copied === "fail" ? "Copy failed" : resourceId}
+    </button>
+  );
+}
+
 function ResourcesPage({ profile, period }) {
   const [service, setService] = useState("");
+  const [limit, setLimit] = useState(RESOURCE_FETCH_LIMIT);
+  const [visible, setVisible] = useState(RESOURCE_PAGE_SIZE);
   const debouncedService = useDebounced(service, 300);
   const resources = useAsyncData(
-    (signal) => api.resources(profile, period, "all", debouncedService, 0, { signal }),
-    [profile, period, debouncedService]
+    (signal) => api.resources(profile, period, "all", debouncedService, limit, { signal }),
+    [profile, period, debouncedService, limit]
   );
+  // Reset client-side pagination when the filter or fetch size changes.
+  useEffect(() => { setVisible(RESOURCE_PAGE_SIZE); }, [debouncedService, limit]);
+  // Reset the requested fetch limit back to default when the filter changes.
+  useEffect(() => { setLimit(RESOURCE_FETCH_LIMIT); }, [debouncedService]);
   if (resources.error) return <div className="loading err">{resources.error}</div>;
   const d = resources.data || {};
+  const allRows = d.rows || [];
+  const shownRows = allRows.slice(0, visible);
+  const totalCount = Number(d.total_count ?? allRows.length);
+  // How many rows the server actually returned (bounded by the requested limit).
+  const fetchedCount = allRows.length;
   return (
     <div className="page">
       <div className="page-h">
@@ -366,6 +439,11 @@ function ResourcesPage({ profile, period }) {
       </div>
       {resources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
         <div className="tbl-wrap">
+          {totalCount > fetchedCount && (
+            <div className="sub" style={{ marginBottom: 8 }}>
+              Showing {Math.min(visible, fetchedCount)} of {totalCount} resources.
+            </div>
+          )}
           <table className="tbl tbl-res">
             <thead>
               <tr>
@@ -376,23 +454,17 @@ function ResourcesPage({ profile, period }) {
               </tr>
             </thead>
             <tbody>
-              {(d.rows || []).map((r) => (
+              {shownRows.map((r) => (
                 <tr key={`${r.service}-${r.resource_id}`}>
                   <td><strong>{r.name || r.resource_id}</strong></td>
                   <td className="muted">{r.service}</td>
                   <td>
-                    <button
-                      className="copy-id"
-                      onClick={() => navigator.clipboard?.writeText(r.resource_id)}
-                      title="Copy resource ID"
-                    >
-                      {r.resource_id}
-                    </button>
+                    <CopyIdButton resourceId={r.resource_id} />
                   </td>
                   <td className="num">{usd(r.cost, 2)}</td>
                 </tr>
               ))}
-              {!service && value(d.unattributed) > 0.01 && (
+              {!service && value(d.unattributed) > 0.01 && visible >= fetchedCount && (
                 <tr className="unattributed-row">
                   <td><span className="unattributed-label">Unattributed charges</span><span className="unattributed-hint"> — likely terminated / deleted resources</span></td>
                   <td className="muted">—</td>
@@ -402,6 +474,18 @@ function ResourcesPage({ profile, period }) {
               )}
             </tbody>
           </table>
+          <div className="res-controls" style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+            {visible < fetchedCount && (
+              <button type="button" className="btn" onClick={() => setVisible((v) => v + RESOURCE_PAGE_SIZE)}>
+                Show more ({fetchedCount - visible} more loaded)
+              </button>
+            )}
+            {visible >= fetchedCount && totalCount > fetchedCount && (
+              <button type="button" className="btn" onClick={() => setLimit((l) => l + RESOURCE_FETCH_LIMIT)}>
+                Load more from server ({totalCount - fetchedCount} not yet loaded)
+              </button>
+            )}
+          </div>
         </div>
       )}
       {(d.rows || []).length === 0 && !resources.loading && (

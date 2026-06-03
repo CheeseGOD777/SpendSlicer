@@ -13,9 +13,13 @@ from datetime import datetime
 from typing import Optional
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from .base import AttributedResource, clamp_window, hours_between, tags_to_dict
+
+# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 
 def attribute_lambda(
@@ -33,7 +37,7 @@ def attribute_lambda(
          recent invocation count (CloudWatch ``Invocations`` sum over
          the window). If CloudWatch is unavailable, split equally.
     """
-    lm = session.client("lambda", region_name=region)
+    lm = session.client("lambda", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     try:
         functions: list[dict] = []
         for page in lm.get_paginator("list_functions").paginate():
@@ -52,7 +56,7 @@ def attribute_lambda(
     should_collect_cw = window_days <= 45 and len(functions) <= 40
     if should_collect_cw:
         try:
-            cw = session.client("cloudwatch", region_name=region)
+            cw = session.client("cloudwatch", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
             for fn in functions:
                 name = fn["FunctionName"]
                 try:

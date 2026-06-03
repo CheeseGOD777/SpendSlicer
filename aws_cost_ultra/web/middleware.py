@@ -33,11 +33,17 @@ _current: contextvars.ContextVar = contextvars.ContextVar("ce_counter", default=
 
 
 def get_current_counter() -> CECallCounter:
-    """Return the current request's counter, or a throwaway if outside a request."""
+    """Return the current request's counter, or a throwaway if outside a request.
+
+    The fallback is intentionally side-effect-free: when called in a pool
+    worker with no propagated context we return a throwaway counter WITHOUT
+    storing it via ``_current.set``. Setting it would leak orphan counters
+    across reused pool threads. Context propagation into workers is handled
+    at submit sites via ``contextvars.copy_context().run``.
+    """
     c = _current.get()
     if c is None:
-        c = CECallCounter()
-        _current.set(c)
+        return CECallCounter()
     return c
 
 

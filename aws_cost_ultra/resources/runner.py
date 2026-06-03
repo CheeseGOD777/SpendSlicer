@@ -23,7 +23,19 @@ from .eip import attribute_eip
 from .elb import attribute_elb
 from .lambda_fn import attribute_lambda
 from .rds import attribute_rds
-from .s3 import attribute_s3
+from .s3 import attribute_s3, attribute_s3_all
+
+# FINDINGS 17 & 34: a single shared bounded executor caps total threads
+# regardless of how many (service x region) work units we generate. Previously
+# an outer pool (up to 16) submitted per-service jobs that each opened their
+# OWN inner pool (up to 12), multiplying into ~70+ concurrent threads.
+_MAX_WORKERS = 16
+
+# FINDING 18: rescaling per-resource costs up to the CE total is only safe when
+# the raw attributed sum is in the same ballpark as the CE total. A tiny raw_sum
+# yields a huge factor that inflates every row. Only rescale inside this band.
+_RESCALE_MIN_FACTOR = 0.2
+_RESCALE_MAX_FACTOR = 5.0
 
 SERVICE_TO_CE: dict[str, str] = {
     "EC2": "Amazon Elastic Compute Cloud - Compute",
@@ -61,18 +73,48 @@ def _frozen_session(base: boto3.Session, region: str) -> boto3.Session:
     return boto3.Session(region_name=region)
 
 
+def _rescale_rows(rows: list[AttributedResource], ce_tot: float, what: str) -> None:
+    """Scale per-resource costs up/down to match a CE total — FINDING 18.
+
+    Clamp the factor to a sane band so a tiny raw_sum (near-zero) can't blow up
+    into a huge multiplier that inflates every row. Outside the band we leave the
+    raw attributed costs untouched and log a drift warning.
+    """
+    if not rows or not ce_tot or ce_tot <= 0:
+        return
+    raw_sum = sum(r.cost_usd for r in rows)
+    if raw_sum <= 0:
+        return
+    factor = ce_tot / raw_sum
+    if not (_RESCALE_MIN_FACTOR <= factor <= _RESCALE_MAX_FACTOR):
+        log.warning(
+            "%s rescale factor %.3f outside [%.2f, %.2f] (raw_sum=%.4f, ce_total=%.4f); "
+            "leaving raw attributed costs unscaled",
+            what, factor, _RESCALE_MIN_FACTOR, _RESCALE_MAX_FACTOR, raw_sum, ce_tot,
+        )
+        return
+    for r in rows:
+        r.cost_usd *= factor
+
+
 def enumerate_all(
     session: boto3.Session,
     window: TimeWindow,
     region: str = ALL_REGIONS,
     spec: Optional[CostFilterSpec] = None,
     services: Optional[list[str]] = None,
+    top_n: Optional[int] = None,
 ) -> list[AttributedResource]:
     """Per-resource rows + CE aggregate rows for every active service.
 
     ``region`` may be a single region code or ``"all"`` (default) to scan
     every opted-in region — required for account-wide CE totals to match
     attributed resource sums.
+
+    ``top_n`` (optional): when set, only the top ``top_n`` rows by cost are
+    returned and the long tail is collapsed into a single synthetic
+    "other resources" aggregate row (mirroring ``other_rows``). Default
+    ``None`` preserves the original behaviour of returning every row.
     """
     spec = spec or pre_credit_gross()
     regions = _resolve_regions(session, region)
@@ -101,92 +143,95 @@ def enumerate_all(
 
     buckets: dict[str, list[AttributedResource]] = {}
 
-    with ThreadPoolExecutor(max_workers=min(16, max(len(regions) * 2, 4))) as pool:
-        jobs: dict = {}
+    # FINDINGS 17 & 34: reuse ONE frozen Session per region across every service
+    # so we don't re-freeze creds / open redundant client stacks per (svc, region).
+    frozen_by_region: dict[str, boto3.Session] = {
+        reg: _frozen_session(session, reg) for reg in regions
+    }
 
-        if want_it("EC2"):
-            jobs["ec2"] = pool.submit(
-                attribute_ec2_account, session, ce_raw, ws, we, regions, spec,
-            )
+    # FINDING 21: build the per-region instance id->name map at most ONCE per
+    # region (EBS needs it; EC2 keeps its own internal scan). Cache lazily and
+    # share the result so EBS doesn't trigger a second describe_instances scan
+    # for a region that's already been resolved.
+    names_by_region: dict[str, dict[str, str]] = {}
 
-        def _fanout_regions(fn, *extra_args):
-            out: list[AttributedResource] = []
-            with ThreadPoolExecutor(max_workers=min(12, len(regions))) as reg_pool:
-                futs = {
-                    reg_pool.submit(fn, _frozen_session(session, reg), ws, we, reg, *extra_args): reg
-                    for reg in regions
-                }
-                for fut in as_completed(futs):
-                    try:
-                        out.extend(fut.result())
-                    except Exception as exc:
-                        log.warning("resource fanout failed for region=%s: %s", futs[fut], type(exc).__name__, exc_info=True)
-            return out
+    def _names_for(reg: str) -> dict[str, str]:
+        if reg not in names_by_region:
+            try:
+                names_by_region[reg] = live_instance_names(frozen_by_region[reg], reg)
+            except Exception as exc:
+                log.warning("live_instance_names failed for region=%s: %s", reg, type(exc).__name__, exc_info=True)
+                names_by_region[reg] = {}
+        return names_by_region[reg]
 
+    # FINDINGS 17, 20, 34: build a FLAT list of (label, thunk) work units across
+    # every (service x region), plus EC2 (one account-wide call) and S3 (one
+    # account-wide call, FINDING 3). Submit them all to a single bounded pool —
+    # no nested executors. EBS (FINDING 20) is parallelized as one unit per region.
+    work: list[tuple[str, callable]] = []
+
+    if want_it("EC2"):
+        # EC2 attribution is a single account-wide call that internally loops
+        # regions (each now REGION-scoped in CE — FINDING 1).
+        work.append(("EC2", lambda: attribute_ec2_account(session, ce_raw, ws, we, regions, spec)))
+
+    if want_it("S3"):
+        # FINDING 3: list buckets + resolve bucket regions ONCE, account-wide,
+        # instead of per-region fan-out of attribute_s3.
+        work.append(("S3", lambda: attribute_s3_all(session, ws, we, regions, ce_total("S3"))))
+
+    def _mk(fn, reg, *extra):
+        ts = frozen_by_region[reg]
+        return lambda: fn(ts, ws, we, reg, *extra)
+
+    def _mk_ebs(reg):
+        ts = frozen_by_region[reg]
+        return lambda: attribute_ebs(ts, ws, we, reg, _names_for(reg))
+
+    for reg in regions:
         if want_it("RDS"):
-            jobs["rds"] = pool.submit(_fanout_regions, attribute_rds)
+            work.append(("RDS", _mk(attribute_rds, reg)))
         if want_it("EIP"):
-            jobs["eip"] = pool.submit(_fanout_regions, attribute_eip)
+            work.append(("EIP", _mk(attribute_eip, reg)))
         if want_it("ELB"):
-            jobs["elb"] = pool.submit(_fanout_regions, attribute_elb)
+            work.append(("ELB", _mk(attribute_elb, reg)))
         if want_it("Lambda"):
-            jobs["lambda"] = pool.submit(_fanout_regions, attribute_lambda, ce_total("Lambda"))
-        if want_it("S3"):
-            jobs["s3"] = pool.submit(_fanout_regions, attribute_s3, ce_total("S3"))
+            work.append(("Lambda", _mk(attribute_lambda, reg, ce_total("Lambda"))))
         if want_it("DynamoDB"):
-            jobs["ddb"] = pool.submit(_fanout_regions, attribute_dynamodb, ce_total("DynamoDB"))
-
+            work.append(("DynamoDB", _mk(attribute_dynamodb, reg, ce_total("DynamoDB"))))
         if want_it("EBS"):
-            def _ebs_all_regions():
-                out: list[AttributedResource] = []
-                for reg in regions:
-                    ts = _frozen_session(session, reg)
-                    names = live_instance_names(ts, reg)
-                    try:
-                        out.extend(attribute_ebs(ts, ws, we, reg, names))
-                    except Exception as exc:
-                        log.warning("EBS attribution failed for region=%s: %s", reg, type(exc).__name__, exc_info=True)
-                return out
-            jobs["ebs"] = pool.submit(_ebs_all_regions)
+            work.append(("EBS", _mk_ebs(reg)))
 
-        label_for_key = {
-            "ec2": "EC2", "ebs": "EBS", "rds": "RDS", "eip": "EIP",
-            "elb": "ELB", "lambda": "Lambda", "s3": "S3", "ddb": "DynamoDB",
-        }
-        for key, label in label_for_key.items():
-            if key in jobs:
+    for label, _ in work:
+        buckets.setdefault(label, [])
+
+    if work:
+        with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(work))) as pool:
+            futs = {pool.submit(thunk): label for label, thunk in work}
+            for fut in as_completed(futs):
+                label = futs[fut]
                 try:
-                    buckets[label] = jobs[key].result()
+                    buckets[label].extend(fut.result())
                 except Exception as exc:
-                    log.warning("resource enumeration job failed for service=%s: %s", label, type(exc).__name__, exc_info=True)
-                    buckets[label] = []
+                    # FINDING 24: adaptive retries on the clients above absorb
+                    # throttling before it reaches here; this stays as a backstop.
+                    log.warning(
+                        "resource work unit failed for service=%s: %s",
+                        label, type(exc).__name__, exc_info=True,
+                    )
 
+    # FINDING 18: EBS+EIP rescaled to the shared "EC2 - Other" CE pool, clamped.
     other_pool = ce_total_by_service.get("EC2 - Other", 0.0)
     if other_pool > 0 and (buckets.get("EBS") or buckets.get("EIP")):
-        raw_sum = (
-            sum(r.cost_usd for r in buckets.get("EBS", []))
-            + sum(r.cost_usd for r in buckets.get("EIP", []))
-        )
-        if raw_sum > 0:
-            factor = other_pool / raw_sum
-            for r in buckets.get("EBS", []):
-                r.cost_usd *= factor
-            for r in buckets.get("EIP", []):
-                r.cost_usd *= factor
+        ebs_eip = buckets.get("EBS", []) + buckets.get("EIP", [])
+        _rescale_rows(ebs_eip, other_pool, "EBS/EIP")
 
+    # FINDING 18: RDS / ELB rescaled to their own CE totals, clamped.
     for label, ce_name in [
         ("RDS", "Amazon Relational Database Service"),
         ("ELB", "Amazon Elastic Load Balancing"),
     ]:
-        rows = buckets.get(label, [])
-        ce_tot = ce_total_by_service.get(ce_name)
-        if not rows or not ce_tot or ce_tot <= 0:
-            continue
-        raw_sum = sum(r.cost_usd for r in rows)
-        if raw_sum > 0:
-            factor = ce_tot / raw_sum
-            for r in rows:
-                r.cost_usd *= factor
+        _rescale_rows(buckets.get(label, []), ce_total_by_service.get(ce_name, 0.0), label)
 
     other_rows: list[AttributedResource] = []
     for ce_name, total in ce_total_by_service.items():
@@ -218,6 +263,31 @@ def enumerate_all(
         flat.extend(svc_rows)
     flat.extend(other_rows)
     flat.sort(key=lambda r: r.cost_usd, reverse=True)
+
+    # FINDING 22: optional server-side top-N cap. When requested, keep the
+    # top_n highest-cost rows and collapse the long tail into one synthetic
+    # "other resources" aggregate row so the returned total is preserved.
+    if top_n is not None and top_n >= 0 and len(flat) > top_n:
+        head = flat[:top_n]
+        tail = flat[top_n:]
+        tail_cost = sum(r.cost_usd for r in tail)
+        if tail_cost > 0.001:
+            head.append(AttributedResource(
+                service="Other",
+                resource_id="other:long-tail",
+                name=f"Other resources ({len(tail)} rows)",
+                resource_type="aggregate",
+                state="active",
+                cost_usd=tail_cost,
+                hours=0.0,
+                region=display_region,
+                attributes={
+                    "aggregate": True,
+                    "rolled_up_rows": len(tail),
+                    "note": f"long tail beyond top {top_n} rows",
+                },
+            ))
+        flat = head
     return flat
 
 

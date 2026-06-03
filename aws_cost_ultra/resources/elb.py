@@ -5,10 +5,18 @@ from __future__ import annotations
 from datetime import datetime
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from aws_cost_ultra.core import pricing
 from .base import AttributedResource, clamp_window, hours_between, tags_to_dict
+
+# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
+
+# FINDING 19: bound how many target groups we inspect for health to keep the
+# describe_target_health fan-out from being unbounded on large accounts.
+_MAX_TARGET_GROUPS = 200
 
 
 def attribute_elb(
@@ -21,7 +29,7 @@ def attribute_elb(
 
     # -- ALB / NLB / Gateway --
     try:
-        elbv2 = session.client("elbv2", region_name=region)
+        elbv2 = session.client("elbv2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
         lbs: list[dict] = []
         for page in elbv2.get_paginator("describe_load_balancers").paginate():
             lbs.extend(page.get("LoadBalancers", []))
@@ -35,17 +43,31 @@ def attribute_elb(
                     tag_map[td["ResourceArn"]] = tags_to_dict(td.get("Tags"))
 
         # Healthy target count per LB, to flag "no targets" waste.
+        # FINDING 19: call describe_target_health AT MOST ONCE per target group
+        # (previously it was nested inside the per-LB-ARN loop, so a TG attached
+        # to N load balancers triggered N identical health calls). Compute the
+        # healthy count once and fan it out to each associated LB. Cap the number
+        # of TGs inspected and rely on adaptive retries for throttling.
         healthy_by_lb: dict = {}
         try:
+            tgs_seen = 0
             for page in elbv2.get_paginator("describe_target_groups").paginate():
                 for tg in page.get("TargetGroups", []):
-                    for lb_arn in tg.get("LoadBalancerArns", []):
-                        health = elbv2.describe_target_health(TargetGroupArn=tg["TargetGroupArn"])
-                        healthy = sum(
-                            1 for t in health.get("TargetHealthDescriptions", [])
-                            if t.get("TargetHealth", {}).get("State") == "healthy"
-                        )
+                    if tgs_seen >= _MAX_TARGET_GROUPS:
+                        break
+                    tgs_seen += 1
+                    lb_arns = tg.get("LoadBalancerArns", [])
+                    if not lb_arns:
+                        continue
+                    health = elbv2.describe_target_health(TargetGroupArn=tg["TargetGroupArn"])
+                    healthy = sum(
+                        1 for t in health.get("TargetHealthDescriptions", [])
+                        if t.get("TargetHealth", {}).get("State") == "healthy"
+                    )
+                    for lb_arn in lb_arns:
                         healthy_by_lb[lb_arn] = healthy_by_lb.get(lb_arn, 0) + healthy
+                if tgs_seen >= _MAX_TARGET_GROUPS:
+                    break
         except ClientError:
             pass
 
@@ -88,7 +110,7 @@ def attribute_elb(
 
     # -- Classic ELB --
     try:
-        elb = session.client("elb", region_name=region)
+        elb = session.client("elb", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
         clbs = elb.describe_load_balancers().get("LoadBalancerDescriptions", [])
         for lb in clbs:
             lb_name = lb["LoadBalancerName"]

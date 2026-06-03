@@ -23,6 +23,22 @@ from aws_cost_ultra.web.render import render
 
 router = APIRouter(prefix="/api/resources")
 
+# Hard server-side caps on the number of per-resource rows returned to the
+# browser. Even when a caller requests an unbounded list (limit <= 0) we never
+# materialize/serialize the entire account resource list into the response.
+_DEFAULT_ROW_CAP = 500   # used when limit <= 0
+_MAX_ROW_CAP = 2000      # absolute ceiling, even when limit > 0
+
+
+def _apply_row_cap(rows: list, limit: int) -> list:
+    """Sort rows by cost desc and apply the bounded cap.
+
+    - limit <= 0  -> cap at _DEFAULT_ROW_CAP (never unbounded)
+    - limit  > 0  -> honor limit but ceiling at _MAX_ROW_CAP
+    """
+    effective = _DEFAULT_ROW_CAP if limit <= 0 else min(limit, _MAX_ROW_CAP)
+    return sorted(rows, key=lambda r: r.get("cost", 0.0), reverse=True)[:effective]
+
 
 def _normalize_cur_row(r: dict) -> dict:
     """Pad a CUR-sourced resource dict to match the shape of AttributedResource.to_dict()."""
@@ -119,11 +135,12 @@ def api_resources(
 
     ctx = dict(cached)
     ctx["service"] = service
-    rows = ctx["rows"]
+    rows = list(ctx.get("rows", []))
     if service:
-        rows = [r for r in rows if r["service"] == service]
-    if limit > 0:
-        rows = sorted(rows, key=lambda r: r["cost"], reverse=True)[:limit]
+        rows = [r for r in rows if r.get("service") == service]
+    total_count = len(rows)
+    rows = _apply_row_cap(rows, limit)
+    ctx["total_count"] = total_count
     ctx["rows"] = rows
     return render(request, "partials/resource_table.html", ctx)
 
@@ -148,9 +165,12 @@ def api_resources_data(
     rows = list(ctx.get("rows", []))
     if service:
         rows = [r for r in rows if r.get("service") == service]
-    if limit > 0:
-        rows = sorted(rows, key=lambda r: r.get("cost", 0.0), reverse=True)[:limit]
+    total_count = len(rows)
+    rows = _apply_row_cap(rows, limit)
     ctx["service"] = service
+    # Total matching rows before the server-side cap, so the UI can render
+    # "showing N of M" without ever receiving the full unbounded list.
+    ctx["total_count"] = total_count
     ctx["rows"] = rows
     return JSONResponse(ctx)
 

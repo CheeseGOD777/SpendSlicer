@@ -8,8 +8,14 @@ filtered and why".
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
+
+log = logging.getLogger(__name__)
+
+# CE hard-caps each Values array (and OR-clause fan-out) at 200 entries.
+_CE_VALUES_LIMIT = 200
 
 # Record types present in CE data.
 # Source: https://docs.aws.amazon.com/cost-management/latest/userguide/ce-advanced.html#ce-filter-reference
@@ -90,11 +96,18 @@ def build_ce_filter(spec: CostFilterSpec) -> Optional[dict]:
         parts.append({"Dimensions": {"Key": "SERVICE", "Values": [spec.service]}})
 
     if spec.linked_accounts:
+        accounts = list(spec.linked_accounts)
+        if len(accounts) > _CE_VALUES_LIMIT:
+            log.warning(
+                "linked_accounts has %d values; CE caps Values at %d — truncating",
+                len(accounts), _CE_VALUES_LIMIT,
+            )
+            accounts = accounts[:_CE_VALUES_LIMIT]
         parts.append(
             {
                 "Dimensions": {
                     "Key": "LINKED_ACCOUNT",
-                    "Values": list(spec.linked_accounts),
+                    "Values": accounts,
                 }
             }
         )
@@ -131,9 +144,16 @@ def build_ce_filter(spec: CostFilterSpec) -> Optional[dict]:
         )
 
     if spec.usage_type_substrings:
+        usage_substrings = list(spec.usage_type_substrings)
+        if len(usage_substrings) > _CE_VALUES_LIMIT:
+            log.warning(
+                "usage_type_substrings has %d OR-clauses; CE caps fan-out at %d — truncating",
+                len(usage_substrings), _CE_VALUES_LIMIT,
+            )
+            usage_substrings = usage_substrings[:_CE_VALUES_LIMIT]
         substrings = [
             {"Dimensions": {"Key": "USAGE_TYPE", "MatchOptions": ["CONTAINS"], "Values": [s]}}
-            for s in spec.usage_type_substrings
+            for s in usage_substrings
         ]
         parts.append({"Or": substrings} if len(substrings) > 1 else substrings[0])
 

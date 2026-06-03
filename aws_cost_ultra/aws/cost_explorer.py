@@ -23,6 +23,7 @@ Design rules
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -236,11 +237,13 @@ class CostExplorerClient:
             else:
                 for g in period.get("Groups", []):
                     total += float(g["Metrics"][metric.value]["Amount"])
-            # Per-bucket window for precise provenance
+            # Per-bucket window for precise provenance: parse this period's
+            # own TimePeriod into UTC-midnight datetimes so each point cites
+            # its own bucket rather than the whole query window.
             bucket_window = TimeWindow(
-                start=window.start.replace(tzinfo=window.start.tzinfo),
-                end=window.end,
-            ) if False else window  # keep caller's window; bucket shown via period_start/end
+                start=datetime.fromisoformat(start).replace(tzinfo=timezone.utc),
+                end=datetime.fromisoformat(end).replace(tzinfo=timezone.utc),
+            )
             points.append(
                 TimeSeriesPoint(
                     period_start=start,
@@ -273,13 +276,23 @@ class CostExplorerClient:
         start_s, end_s = window.iso()
         # Forecast expects METRIC in SNAKE_CASE (UNBLENDED_COST), whereas
         # get_cost_and_usage takes CamelCase (UnblendedCost). Translate.
-        forecast_metric = {
+        _FORECAST_METRICS = {
             "UnblendedCost":  "UNBLENDED_COST",
             "BlendedCost":    "BLENDED_COST",
             "AmortizedCost":  "AMORTIZED_COST",
             "NetUnblendedCost": "NET_UNBLENDED_COST",
             "NetAmortizedCost": "NET_AMORTIZED_COST",
-        }.get(metric.value, metric.value)
+        }
+        # CE only forecasts dollar metrics. Usage metrics (UsageQuantity,
+        # NormalizedUsageAmount) are not supported and would silently fall
+        # through to an invalid CamelCase value that CE rejects. Fail loudly
+        # since calling this with a usage metric is a programming error.
+        if metric.value not in _FORECAST_METRICS:
+            raise ValueError(
+                f"get_cost_forecast does not support metric {metric.value}; "
+                "only dollar metrics are forecastable"
+            )
+        forecast_metric = _FORECAST_METRICS[metric.value]
         kwargs: dict = {
             "TimePeriod": {"Start": start_s, "End": end_s},
             "Metric": forecast_metric,

@@ -5,9 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 
 import boto3
+from botocore.config import Config
 
 from aws_cost_ultra.core import pricing
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
+
+# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 
 def attribute_ebs(
@@ -17,7 +21,7 @@ def attribute_ebs(
     region: str,
     ec2_name_by_id: dict[str, str] | None = None,
 ) -> list[AttributedResource]:
-    ec2 = session.client("ec2", region_name=region)
+    ec2 = session.client("ec2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     names = ec2_name_by_id or {}
 
     rows: list[AttributedResource] = []

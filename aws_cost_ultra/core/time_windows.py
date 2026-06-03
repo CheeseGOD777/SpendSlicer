@@ -47,18 +47,25 @@ def month_before_last() -> TimeWindow:
 
 
 def remainder_of_current_month() -> TimeWindow:
-    """Tomorrow (UTC) → 1st of next month. For CE forecast calls.
+    """Today's UTC midnight → 1st of next month. For CE forecast calls.
 
-    CE's ``get_cost_forecast`` requires Start >= today, and its results
-    project only across the queried window. Pass this to forecast the
-    leftover portion of the current month.
+    CE's ``get_cost_forecast`` allows Start = today, so we start at today's
+    UTC midnight rather than tomorrow — otherwise the partial current day's
+    spend is dropped from the forecast. Its results project only across the
+    queried window.
     """
-    now = datetime.now(tz=timezone.utc)
-    start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = _utc_today_midnight()
     if start.month == 12:
         end = start.replace(year=start.year + 1, month=1, day=1)
     else:
         end = start.replace(month=start.month + 1, day=1)
+    # Guard: on the 1st of a month, start (today midnight) == end (1st of next
+    # month) would only collide on the last day of the month if start were
+    # tomorrow; with start=today the sole edge is start==end never happening
+    # since end is always the *next* month's 1st > today. Keep an explicit
+    # guard so Start < End always holds and TimeWindow never raises.
+    if start >= end:
+        end = start + timedelta(days=1)
     return TimeWindow(start=start, end=end)
 
 

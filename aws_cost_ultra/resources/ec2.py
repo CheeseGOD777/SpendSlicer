@@ -11,10 +11,15 @@ from datetime import datetime
 from typing import Optional
 
 import boto3
+from botocore.config import Config
 
 from aws_cost_ultra.core.filters import CostFilterSpec, build_ce_filter, pre_credit_gross
 
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
+
+# FINDING 24: enable botocore adaptive retries so CE/EC2 throttling self-heals
+# (retried at the client layer) before it surfaces to the fan-out handlers.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 _FALLBACK_SOURCE = "cost_explorer_usage_type"
 
@@ -76,6 +81,13 @@ def _attribute_from_usage_type(
     filt_parts.append({
         "Dimensions": {"Key": "SERVICE", "Values": ["Amazon Elastic Compute Cloud - Compute"]}
     })
+    # FINDING 1: scope the per-region CE query to THIS region. Without it,
+    # every region iteration fetched the identical account-wide EC2 usage-type
+    # totals and re-attributed them, counting the same cost once per region.
+    filt_parts.append({
+        "Dimensions": {"Key": "REGION", "Values": [region]}
+    })
+    # Combine base_filter + SERVICE + REGION under a single And so all parts apply.
     combined = {"And": filt_parts} if len(filt_parts) > 1 else filt_parts[0]
 
     start_s = window_start.strftime("%Y-%m-%d")
@@ -118,7 +130,7 @@ def _attribute_from_usage_type(
     if not ce_by_key:
         return []
 
-    ec2 = session.client("ec2", region_name=region)
+    ec2 = session.client("ec2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     inst_by_key: dict = defaultdict(list)
     for page in ec2.get_paginator("describe_instances").paginate():
         for res in page.get("Reservations", []):
@@ -213,7 +225,7 @@ def _attribute_from_usage_type(
 
 def live_instance_names(session: boto3.Session, region: str) -> dict[str, str]:
     """Fast id→name lookup for EBS attached-instance labels."""
-    ec2 = session.client("ec2", region_name=region)
+    ec2 = session.client("ec2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     out: dict[str, str] = {}
     for page in ec2.get_paginator("describe_instances").paginate():
         for res in page.get("Reservations", []):

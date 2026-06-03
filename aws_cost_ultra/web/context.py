@@ -80,4 +80,6 @@ def friendly_error(exc: Exception) -> str:
         return "AWS session token expired. Re-authenticate and try again."
     if "AccessDenied" in msg or "not authorized" in msg.lower():
         return "Access denied. Check IAM permissions for Cost Explorer and resource APIs."
-    return f"AWS error: {msg[:160]}"
+    # Do not leak raw exception text (may contain ARNs, account IDs, etc.) to clients.
+    log.error("Unhandled AWS error: %s", exc, exc_info=True)
+    return "AWS error — see server logs for details."

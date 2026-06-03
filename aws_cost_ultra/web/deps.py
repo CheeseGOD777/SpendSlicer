@@ -6,6 +6,7 @@ and uvicorn --reload cycles without losing warm entries.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import threading
@@ -71,6 +72,13 @@ _refresh_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="acu-refres
 _refreshing: set[str] = set()
 _refresh_lock = threading.Lock()
 
+# Hard cap on queued+running background refreshes. With an unbounded
+# SimpleQueue, heavy producers can starve hot keys and the queue grows
+# without bound; once we hit this cap we shed (drop) new refresh requests
+# rather than enqueue them. Per-key dedup via _refreshing still applies.
+_MAX_INFLIGHT_REFRESHES = int(os.environ.get("ACU_MAX_INFLIGHT_REFRESHES", "32"))
+_inflight_refreshes = 0
+
 
 def schedule_refresh(key: str, producer) -> None:
     """Fire-and-forget background cache refresh, deduplicated by key.
@@ -78,14 +86,24 @@ def schedule_refresh(key: str, producer) -> None:
     ``producer`` is a 0-arg callable that returns the new cached value.
     Only one refresh per key runs at a time; duplicates are silently
     dropped, so any number of simultaneous stale-hits still triggers
-    exactly one upstream fetch.
+    exactly one upstream fetch. A global in-flight cap sheds new requests
+    once too many refreshes are queued/running.
     """
     with _refresh_lock:
         if key in _refreshing:
             return
+        global _inflight_refreshes
+        if _inflight_refreshes >= _MAX_INFLIGHT_REFRESHES:
+            log.debug(
+                "shedding background refresh for key=%s: in-flight cap %d reached",
+                key, _MAX_INFLIGHT_REFRESHES,
+            )
+            return
         _refreshing.add(key)
+        _inflight_refreshes += 1
 
     def _run() -> None:
+        global _inflight_refreshes
         try:
             val = producer()
             if val is not None:
@@ -95,8 +113,13 @@ def schedule_refresh(key: str, producer) -> None:
         finally:
             with _refresh_lock:
                 _refreshing.discard(key)
+                _inflight_refreshes -= 1
 
-    _refresh_pool.submit(_run)
+    # Run the producer in a copy of the request's context so contextvars
+    # (e.g. the CE call counter) propagate into the pool worker instead of
+    # the worker fabricating orphan state.
+    ctx = contextvars.copy_context()
+    _refresh_pool.submit(ctx.run, _run)
 
 
 # ---------------------------------------------------------------------------
@@ -112,28 +135,16 @@ def get_session(profile: str = Query("default")) -> boto3.Session:
         return boto3.Session()
 
 
-# Each worker thread gets its own CostExplorerClient instance to avoid
-# any chance of contention on the underlying boto3 client. Sessions
-# themselves are not pooled here — they're cheap.
-_ce_local = threading.local()
-
-
 def get_ce_client(session: boto3.Session) -> CostExplorerClient:
-    """Per-thread CostExplorerClient cached by session identity.
+    """Construct a CostExplorerClient bound to ``session``.
 
-    The wrapper claims not to be thread-safe; this keeps each worker
-    isolated without paying for repeated client construction.
+    We deliberately do NOT cache here. get_session/make_session builds a
+    fresh boto3.Session per request, so caching keyed by id(session) grew
+    an unbounded per-thread dict (the ids are always distinct). Client
+    construction is cheap relative to the CE round-trip, and the wrapper
+    pins its own session, so a per-call client is both correct and safe.
     """
-    key = id(session)
-    cache: dict[int, CostExplorerClient] | None = getattr(_ce_local, "clients", None)
-    if cache is None:
-        cache = {}
-        _ce_local.clients = cache
-    client = cache.get(key)
-    if client is None:
-        client = CostExplorerClient(session=session)
-        cache[key] = client
-    return client
+    return CostExplorerClient(session=session)
 
 
 def get_profiles() -> list[str]:
