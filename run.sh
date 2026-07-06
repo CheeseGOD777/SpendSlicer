@@ -1,12 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+
 echo "============================================"
-echo "  AWS Cost Dashboard"
+echo "  aws-cost-ultra"
 echo "============================================"
 echo
 
 if ! command -v python3 &>/dev/null; then
-    echo "ERROR: Python is not installed or not in PATH."
-    echo "Install Python from https://python.org"
+    echo "ERROR: python3 is not installed or not in PATH."
     exit 1
 fi
 
@@ -17,15 +19,15 @@ if [ ! -f "venv/bin/activate" ]; then
     fi
     echo "Creating virtual environment..."
     python3 -m venv venv
-    source venv/bin/activate
-    echo "Installing dependencies..."
-    pip install -r requirements.txt
-else
-    source venv/bin/activate
 fi
+source venv/bin/activate
+
+echo "Installing dependencies..."
+pip install --quiet --upgrade pip
+pip install --quiet -e ".[web,cur]"
 
 echo
-echo "Starting dashboard at http://localhost:5000"
+echo "Starting dashboard at http://127.0.0.1:8080/app"
 echo "Press Ctrl+C to stop."
 echo
-python app.py
+python -m aws_cost_ultra.web.app

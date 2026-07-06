@@ -11,17 +11,35 @@ The AWS Billing console shows usage types (`t4g.small · 500 hrs`) without resou
 - **Waste radar** — stopped EC2, unattached EBS, unused EIPs, untagged resources
 - Numbers **reconciled to Cost Explorer** (pre-credit, matching the Billing console)
 
-## Quick start
+## Quickstart
 
 ```bash
+git clone <repo-url>
 cd aws-cost-dashboard
-python -m venv venv && source venv/bin/activate
-pip install -e ".[web]"
-aws configure   # or use existing ~/.aws/credentials profiles
-python -m aws_cost_ultra.web.app
+./run.sh          # Windows: run.bat
 ```
 
-Open http://127.0.0.1:8080 — pick an **AWS CLI profile** from the dropdown (same as `AWS_PROFILE`).
+Then open http://127.0.0.1:8080/app
+
+The run script creates a virtualenv, installs the package with the `web`
+and `cur` extras, and starts the server. A pre-built frontend is committed
+under `frontend/dist/`, so Node.js is **not** required to run the dashboard.
+
+Pick an **AWS CLI profile** from the dropdown (same as `AWS_PROFILE`), or run `aws configure` first if you haven't set one up.
+
+### Hacking on the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev      # Vite dev server on :5173, proxying /api to :8080
+npm run build    # refresh frontend/dist served at /app
+```
+
+### Security note
+
+The server binds to 127.0.0.1 by default. If you expose it on any other
+interface, set `ACU_AUTH_TOKEN` — never run it unauthenticated on a network.
 
 ## IAM permissions (minimum)
 
@@ -41,7 +59,7 @@ aws_cost_ultra/
   resources/  Per-resource attribution (EC2, EBS, RDS, …)
   audit/      Idle + untagged + budgets
   exporters/  JSON / CSV / PDF / Slack / S3
-  web/        FastAPI + HTMX dashboard
+  web/        FastAPI + React dashboard
 ```
 
 **Accuracy model:** Service totals come from Cost Explorer. EC2 prefers CE `RESOURCE_ID` (billed instance → exact cost). Other services use list-price estimates scaled to CE service totals. Unattributed drift is shown explicitly.
