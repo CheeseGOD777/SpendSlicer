@@ -14,7 +14,7 @@ const getJson = async (path, params = {}, opts = {}) => {
   const key = cacheKey(path, params);
   const cached = readSwr(key);
   if (cached?.fresh) {
-    return { data: cached.value, meta: { ceCalls: 0, ceCostUsd: 0, fromCache: "fresh" } };
+    return { data: cached.value, meta: { ceCalls: 0, ceCostUsd: 0, fromCache: "fresh", backendError: null } };
   }
 
   const qs = toParams(params);
@@ -26,20 +26,25 @@ const getJson = async (path, params = {}, opts = {}) => {
     // "0,01") would yield NaN, which then poisons the session cost meter
     // permanently (NaN propagates through every later accumulation).
     const finite = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    // Backend ctx builders report failures as HTTP 200 + {error: "..."} —
+    // surface that instead of rendering zeroed figures as if they were real.
+    const backendError = data && typeof data === "object" && typeof data.error === "string" && data.error
+      ? data.error
+      : null;
     const meta = {
       ceCalls: finite(res.headers.get("X-CE-Calls-Spent") || 0),
       ceCostUsd: finite(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
       fromCache: null,
+      backendError,
     };
-    // Don't cache transient placeholders (e.g. resources/top returns
-    // {warming:true} while the attribution scan runs in the background);
-    // otherwise the placeholder sticks around for the SWR TTL and the
-    // user keeps seeing "warming up" after the data is ready.
-    if (!data?.warming) writeSwr(key, data);
+    // Don't cache transient placeholders ({warming:true}) or error payloads —
+    // otherwise a single expired-credentials response poisons the view for
+    // the whole SWR TTL even after the user fixes the problem.
+    if (!data?.warming && !backendError) writeSwr(key, data);
     return { data, meta };
   } catch (err) {
     if (err?.name === "AbortError") throw err;
-    if (cached) return { data: cached.value, meta: { ceCalls: 0, ceCostUsd: 0, fromCache: "stale" } };
+    if (cached) return { data: cached.value, meta: { ceCalls: 0, ceCostUsd: 0, fromCache: "stale", backendError: null } };
     throw err;
   }
 };
