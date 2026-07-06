@@ -4,6 +4,7 @@ import { useAsyncData } from "./hooks/useAsyncData";
 import { useDebounced } from "./hooks/useDebounced";
 import { Donut, StackedBars } from "./charts";
 import { CostBadge } from "./components/CostBadge";
+import { usd, pct, value } from "./lib/format";
 
 const NAV = [
   { group: "Visibility", items: ["dashboard", "services", "resources"] },
@@ -18,19 +19,9 @@ const TITLES = {
   export: "Export",
 };
 
-const usd = (n, dec = 3) => {
-  let num = Number(n || 0);
-  // CE sometimes returns tiny negative floats (-0.00001); clamp to zero before display
-  if (num < 0 && Math.abs(num) < 5 * Math.pow(10, -(dec + 1))) num = 0;
-  return `$${num.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
-};
-const pct = (n) => `${n >= 0 ? "+" : ""}${Number(n || 0).toFixed(1)}%`;
-const value = (v, fallback = 0) => Number(v ?? fallback);
-
 const PERIOD_LABEL = {
   mtd: "month to date",
   "30d": "last 30 days",
-  "60d": "last 60 days",
   "90d": "last 90 days",
   last_month: "previous month",
   "3m": "rolling 3 months",

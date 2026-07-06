@@ -1,8 +1,6 @@
 import React from "react";
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
   Tooltip,
   XAxis,
   YAxis,
@@ -13,27 +11,11 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import { usdCompact, usdTip } from "./lib/format";
 
 // Editorial palette (matches --s1..--s8 in tokens.css). Used for both the
 // donut and any stacked-bar series. Single-series spend uses --accent.
 export const PALETTE = ["#1C5E3F", "#2D5478", "#9E3B2E", "#A77418", "#1F6E6E", "#5D3A53", "#6E6048", "#847A6E"];
-
-export const SERIES_COLORS = {
-  EC2: "#1C5E3F",
-  RDS: "#2D5478",
-  S3: "#5D3A53",
-  Lambda: "#A77418",
-  CloudFront: "#1F6E6E",
-  Other: "#847A6E",
-};
-
-const usdK = (n) => {
-  const v = Number(n || 0);
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
-  if (v >= 1)   return `$${v.toFixed(0)}`;
-  return `$${v.toFixed(2)}`;
-};
 
 const tooltipStyle = {
   background: "var(--surface)",
@@ -57,22 +39,7 @@ const tooltipLabelStyle = {
 };
 const axisTick = { fill: "var(--ink-4)", fontSize: 11, fontFamily: "var(--font-mono)", letterSpacing: -0.2 };
 
-export function Sparkline({ data, color = "var(--accent)", width = 86, height = 28 }) {
-  if (!data || data.length < 2) return <div style={{ width, height }} />;
-  const rows = data.map((v, i) => ({ i, v }));
-  return (
-    <div style={{ width, height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows}>
-          <Line type="monotone" dataKey="v" stroke={color} strokeWidth={1.7} dot={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
 export function StackedBars({ data, keys, height = 300 }) {
-  const fillForKey = (k) => SERIES_COLORS[k] || "var(--accent)";
   return (
     <div style={{ width: "100%", height }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -86,7 +53,7 @@ export function StackedBars({ data, keys, height = 300 }) {
             tickMargin={8}
           />
           <YAxis
-            tickFormatter={usdK}
+            tickFormatter={usdCompact}
             tick={axisTick}
             axisLine={false}
             tickLine={false}
@@ -95,34 +62,14 @@ export function StackedBars({ data, keys, height = 300 }) {
           />
           <Tooltip
             cursor={{ fill: "rgba(28, 94, 63, 0.06)" }}
-            formatter={(v) => usdK(v)}
+            formatter={(v) => usdTip(v)}
             contentStyle={tooltipStyle}
             itemStyle={tooltipItemStyle}
             labelStyle={tooltipLabelStyle}
           />
           {keys.map((k) => (
-            <Bar key={k} dataKey={k} stackId="total" fill={fillForKey(k)} radius={[2, 2, 0, 0]} />
+            <Bar key={k} dataKey={k} stackId="total" fill="var(--accent)" radius={[2, 2, 0, 0]} />
           ))}
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-// Kept for API compatibility; renders a minimal bar fallback. Trends page
-// is removed, so this is not used by the app in the current build.
-export function AreaChart({ data, labels, height = 320 }) {
-  if (!data || data.length === 0) return <div style={{ width: "100%", height }} />;
-  const rows = data.map((v, i) => ({ label: labels?.[i] || String(i + 1), value: Number(v || 0) }));
-  return (
-    <div style={{ width: "100%", height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} margin={{ top: 8, right: 4, left: 0, bottom: 4 }}>
-          <CartesianGrid stroke="var(--line)" vertical={false} />
-          <XAxis dataKey="label" tick={axisTick} axisLine={{ stroke: "var(--line-2)" }} tickLine={false} />
-          <YAxis tickFormatter={usdK} tick={axisTick} axisLine={false} tickLine={false} width={48} />
-          <Tooltip formatter={(v) => usdK(v)} contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
-          <Bar dataKey="value" fill="var(--accent)" radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -156,7 +103,7 @@ export function Donut({ data, size = 240, thickness = 18 }) {
                 <Cell key={s.key} fill={s.color} fillOpacity={hover === null || hover === i ? 1 : 0.22} />
               ))}
             </Pie>
-            <Tooltip formatter={(v) => usdK(v)} contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
+            <Tooltip formatter={(v) => usdTip(v)} contentStyle={tooltipStyle} itemStyle={tooltipItemStyle} labelStyle={tooltipLabelStyle} />
           </PieChart>
         </ResponsiveContainer>
         <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", textAlign: "center", pointerEvents: "none" }}>
@@ -185,7 +132,7 @@ export function Donut({ data, size = 240, thickness = 18 }) {
                 color: "var(--ink)",
               }}
             >
-              {focused ? usdK(focused.value) : usdK(total)}
+              {focused ? usdCompact(focused.value) : usdCompact(total)}
             </div>
             <div
               style={{
@@ -256,7 +203,7 @@ export function Donut({ data, size = 240, thickness = 18 }) {
                 textAlign: "right",
               }}
             >
-              {usdK(s.value)}
+              {usdCompact(s.value)}
             </span>
           </div>
         ))}
