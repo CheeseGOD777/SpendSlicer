@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import logging
 
-from aws_cost_ultra.aws.cost_store import CostStore
 from aws_cost_ultra.core.filters import pre_credit_gross
-from aws_cost_ultra.web.deps import cache_get, cache_set, get_ce_client, get_session, period_to_window
+from aws_cost_ultra.web.deps import get_cost_source, get_session, period_to_window
 
 log = logging.getLogger("aws_cost_ultra.prewarm")
 
@@ -25,10 +24,6 @@ def prewarm_background(profiles: list[str]) -> None:
     for profile in profiles:
         try:
             session = get_session(profile)
-            # get_ce_client no longer caches by id(session) (the unbounded
-            # per-thread leak is resolved upstream in deps.py), so building a
-            # fresh CE client per profile here is fine.
-            ce = get_ce_client(session)
             spec = pre_credit_gross()
 
             try:
@@ -38,8 +33,12 @@ def prewarm_background(profiles: list[str]) -> None:
                 continue
 
             window = period_to_window("mtd")
-            store = CostStore(ce, cache_get=cache_get, cache_set=cache_set)
-            store.get_matrix(profile, account_id, window, spec)
+            # FINDING 43: warm through CostSource — the same path request
+            # handlers use — so when CUR is configured the warm hits the (free)
+            # CUR store instead of spending a CE call that the routes then never
+            # read (they'd prefer CUR). With no CUR it's still the CE matrix.
+            src = get_cost_source(session)
+            src.get_matrix(profile, account_id, window, spec)
 
             log.info("prewarm matrix populated for profile=%s", profile)
         except Exception as exc:

@@ -9,7 +9,8 @@ the request's context, then writes the totals into the response.
 from __future__ import annotations
 
 import contextvars
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -19,10 +20,16 @@ from starlette.requests import Request
 class CECallCounter:
     calls: int = 0
     records: int = 0
+    # FINDING 42: workers in the per-request fan-out share this one counter
+    # (the context copy is shallow) and call add() concurrently — `+=` is a
+    # non-atomic read-modify-write, so increments were lost. Guard with a lock;
+    # it is uncontended in the common single-threaded case.
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def add(self, pages: int = 0, records: int = 0) -> None:
-        self.calls += pages
-        self.records += records
+        with self._lock:
+            self.calls += pages
+            self.records += records
 
     def estimated_usd(self) -> float:
         # $0.01 / request, $0.00001 / UsageRecord
@@ -30,6 +37,20 @@ class CECallCounter:
 
 
 _current: contextvars.ContextVar = contextvars.ContextVar("ce_counter", default=None)
+
+
+def set_new_counter() -> CECallCounter:
+    """Install a fresh counter in the current context and return it.
+
+    Background producers run in a *copy* of the request's context, which (being
+    a shallow copy) still points at the request's mutable counter — so their CE
+    spend would race onto, and over-report, the request's X-CE-Calls-Spent
+    header. Calling this inside the copied context gives the producer its own
+    counter instead.
+    """
+    c = CECallCounter()
+    _current.set(c)
+    return c
 
 
 def get_current_counter() -> CECallCounter:

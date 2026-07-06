@@ -9,6 +9,8 @@ dominate.
 
 from __future__ import annotations
 
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -17,33 +19,81 @@ from botocore.exceptions import ClientError
 
 from .base import AttributedResource, tag_name, tags_to_dict
 
+log = logging.getLogger(__name__)
+
 # FINDING 24: adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
+# Bound the per-bucket API fan-out width. boto3 low-level clients are safe for
+# concurrent calls once constructed; this caps in-flight requests so a
+# bucket-heavy account doesn't open thousands of sockets at once.
+_S3_FANOUT_WORKERS = 16
+# Safety valve: on accounts with an extreme bucket count, attribute only the
+# first N (ListBuckets order) and log what was dropped rather than stalling.
+_MAX_S3_BUCKETS = 5000
+
+
+# All S3 storage-class dimensions CloudWatch reports BucketSizeBytes for.
+# Weighting on StandardStorage alone gave IA/Glacier/Intelligent-Tiering-heavy
+# buckets ~0 weight (and thus ~$0 attribution, with their cost redistributed
+# onto Standard buckets). Sum across every class instead.
+_S3_STORAGE_TYPES = (
+    "StandardStorage",
+    "IntelligentTieringFAStorage",
+    "IntelligentTieringIAStorage",
+    "IntelligentTieringAAStorage",
+    "IntelligentTieringAIAStorage",
+    "IntelligentTieringDAAStorage",
+    "StandardIAStorage",
+    "StandardIASizeOverhead",
+    "OneZoneIAStorage",
+    "OneZoneIASizeOverhead",
+    "ReducedRedundancyStorage",
+    "GlacierInstantRetrievalStorage",
+    "GlacierStorage",
+    "GlacierStagingStorage",
+    "DeepArchiveStorage",
+    "DeepArchiveStagingStorage",
+)
+
 
 def _bucket_size_bytes(cw, name: str) -> float:
-    """Latest CloudWatch BucketSizeBytes (StandardStorage) for a bucket, or 0."""
+    """Total CloudWatch BucketSizeBytes across ALL storage classes, or 0.
+
+    One GetMetricData call batches every storage-class query for the bucket.
+    """
+    end = datetime.now(tz=timezone.utc)
+    start = end - timedelta(days=2)
+    queries = [
+        {
+            "Id": f"m{i}",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/S3",
+                    "MetricName": "BucketSizeBytes",
+                    "Dimensions": [
+                        {"Name": "BucketName", "Value": name},
+                        {"Name": "StorageType", "Value": st},
+                    ],
+                },
+                "Period": 86400,
+                "Stat": "Average",
+            },
+            "ReturnData": True,
+        }
+        for i, st in enumerate(_S3_STORAGE_TYPES)
+    ]
     try:
-        end = datetime.now(tz=timezone.utc)
-        start = end - timedelta(days=2)
-        resp = cw.get_metric_statistics(
-            Namespace="AWS/S3",
-            MetricName="BucketSizeBytes",
-            Dimensions=[
-                {"Name": "BucketName", "Value": name},
-                {"Name": "StorageType", "Value": "StandardStorage"},
-            ],
-            StartTime=start,
-            EndTime=end,
-            Period=86400,
-            Statistics=["Average"],
-        )
-        pts = resp.get("Datapoints", [])
-        if pts:
-            return max(p.get("Average", 0.0) for p in pts)
+        resp = cw.get_metric_data(MetricDataQueries=queries, StartTime=start, EndTime=end)
     except ClientError:
-        pass
-    return 0.0
+        return 0.0
+    total = 0.0
+    for r in resp.get("MetricDataResults", []):
+        vals = r.get("Values", [])
+        if vals:
+            # Latest (results are time-ordered desc by default); use max to be safe.
+            total += max(vals)
+    return total
 
 
 def attribute_s3_all(
@@ -76,56 +126,77 @@ def attribute_s3_all(
 
     region_set = set(regions) if regions else None
 
-    # Resolve each bucket's region exactly once.
-    bucket_region: dict[str, str] = {}
-    for b in buckets:
-        name = b["Name"]
-        try:
-            loc = s3.get_bucket_location(Bucket=name).get("LocationConstraint") or "us-east-1"
-        except ClientError:
-            continue
-        if loc == "EU":
-            loc = "eu-west-1"
-        # Skip buckets outside the regions we were asked to scan.
-        if region_set is not None and loc not in region_set:
-            continue
-        bucket_region[name] = loc
+    if len(buckets) > _MAX_S3_BUCKETS:
+        log.warning(
+            "attribute_s3_all: %d buckets exceeds cap %d; attributing the first "
+            "%d only (S3 cost for the remainder is not broken out per bucket)",
+            len(buckets), _MAX_S3_BUCKETS, _MAX_S3_BUCKETS,
+        )
+        buckets = buckets[:_MAX_S3_BUCKETS]
 
-    if not bucket_region:
-        return []
+    # AUDIT (scale): the three per-bucket round-trips below — get_bucket_location,
+    # CloudWatch BucketSizeBytes, get_bucket_tagging — were each a sequential
+    # loop over every bucket, so a bucket-heavy account stalled for minutes on
+    # one single-threaded work unit. Fan them out across a bounded pool instead.
+    pool = ThreadPoolExecutor(max_workers=min(_S3_FANOUT_WORKERS, len(buckets)))
+    try:
+        # Phase 1: resolve each bucket's region exactly once (concurrent).
+        def _resolve(b):
+            name = b["Name"]
+            try:
+                loc = s3.get_bucket_location(Bucket=name).get("LocationConstraint") or "us-east-1"
+            except ClientError:
+                return None
+            if loc == "EU":
+                loc = "eu-west-1"
+            return (name, loc)
 
-    # Per-region CloudWatch client cache (size metric lives in bucket's region).
-    cw_by_region: dict[str, object] = {}
+        bucket_region: dict[str, str] = {}
+        for res in pool.map(_resolve, buckets):
+            if res is None:
+                continue
+            name, loc = res
+            if region_set is not None and loc not in region_set:
+                continue
+            bucket_region[name] = loc
 
-    def _cw(region: str):
-        if region not in cw_by_region:
-            cw_by_region[region] = session.client(
-                "cloudwatch", region_name=region, config=_ADAPTIVE_RETRY_CONFIG,
-            )
-        return cw_by_region[region]
+        if not bucket_region:
+            return []
 
-    # Per-region S3 client cache for tagging (tagging works cross-region but
-    # using the bucket's region avoids redirect round-trips).
-    s3_by_region: dict[str, object] = {"us-east-1": s3}
+        # Pre-build one CloudWatch + one S3 client per region up front. The lazy
+        # dict caches used previously would race under concurrent access; boto3
+        # client *construction* is not thread-safe, but constructed clients are
+        # safe to call concurrently, so build them all before fanning out.
+        needed_regions = set(bucket_region.values())
+        cw_by_region = {r: session.client("cloudwatch", region_name=r, config=_ADAPTIVE_RETRY_CONFIG) for r in needed_regions}
+        s3_by_region = {"us-east-1": s3}
+        for r in needed_regions:
+            if r not in s3_by_region:
+                s3_by_region[r] = session.client("s3", region_name=r, config=_ADAPTIVE_RETRY_CONFIG)
 
-    def _s3(region: str):
-        if region not in s3_by_region:
-            s3_by_region[region] = session.client(
-                "s3", region_name=region, config=_ADAPTIVE_RETRY_CONFIG,
-            )
-        return s3_by_region[region]
+        creation_by_name = {b["Name"]: b.get("CreationDate") for b in buckets}
 
-    creation_by_name = {b["Name"]: b.get("CreationDate") for b in buckets}
+        # Phase 2: per bucket, fetch size + tags concurrently.
+        def _fetch(item):
+            name, reg = item
+            size_bytes = _bucket_size_bytes(cw_by_region[reg], name)
+            tags: dict = {}
+            tag_resp = None
+            try:
+                tag_resp = s3_by_region[reg].get_bucket_tagging(Bucket=name).get("TagSet", [])
+                tags = tags_to_dict(tag_resp)
+            except ClientError:
+                tag_resp = None
+            return name, reg, size_bytes, tags, tag_resp
 
-    weights: dict[str, float] = {}
-    for name, reg in bucket_region.items():
-        weights[name] = _bucket_size_bytes(_cw(reg), name)
+        fetched = list(pool.map(_fetch, list(bucket_region.items())))
+    finally:
+        pool.shutdown(wait=True)
 
-    weight_sum = sum(weights.values()) or 0.0
-    n_buckets = len(bucket_region)
+    weight_sum = sum(f[2] for f in fetched) or 0.0
+    n_buckets = len(fetched)
     rows: list[AttributedResource] = []
-    for name, reg in bucket_region.items():
-        size_bytes = weights.get(name, 0.0)
+    for name, reg, size_bytes, tags, tag_resp in fetched:
         if weight_sum > 0:
             share = size_bytes / weight_sum
         elif ce_service_total_usd > 0:
@@ -133,13 +204,6 @@ def attribute_s3_all(
         else:
             share = 0.0
         cost = ce_service_total_usd * share
-
-        tags: dict = {}
-        try:
-            tag_resp = _s3(reg).get_bucket_tagging(Bucket=name).get("TagSet", [])
-            tags = tags_to_dict(tag_resp)
-        except ClientError:
-            tag_resp = None
 
         created = creation_by_name.get(name)
         rows.append(AttributedResource(

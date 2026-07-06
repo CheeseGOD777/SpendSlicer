@@ -111,7 +111,13 @@ def attribute_elb(
     # -- Classic ELB --
     try:
         elb = session.client("elb", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
-        clbs = elb.describe_load_balancers().get("LoadBalancerDescriptions", [])
+        # Paginate like the v2 path: a bare describe_load_balancers() returns at
+        # most 400 CLBs and a NextMarker; without paging, CLBs beyond the first
+        # page were silently dropped (and their cost redistributed onto the rest
+        # via the ELB rescale).
+        clbs = []
+        for page in elb.get_paginator("describe_load_balancers").paginate():
+            clbs.extend(page.get("LoadBalancerDescriptions", []))
         for lb in clbs:
             lb_name = lb["LoadBalancerName"]
             created = lb.get("CreatedTime")

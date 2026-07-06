@@ -89,10 +89,17 @@ def attribute_lambda(
 
         if weight_sum > 0:
             share = weights.get(name, 0.0) / weight_sum
+            attribution_source = "invocation_weighted"
         elif total_for_split > 0:
+            # Uninformed equal split — kicks in when CloudWatch weighting was
+            # skipped (e.g. >40 functions in this region) or returned no signal.
+            # Tag the row so the UI can flag it as low-confidence rather than
+            # presenting a uniform smear as if it were measured.
             share = 1.0 / len(functions)
+            attribution_source = "equal_split"
         else:
             share = 0.0
+            attribution_source = "none"
         cost = total_for_split * share
 
         # Tags require a second call — only for functions with non-zero cost,
@@ -121,6 +128,7 @@ def attribute_lambda(
                 "last_modified": created,
                 "invocations": int(weights.get(name, 0)),
                 "timeout_s": fn.get("Timeout"),
+                "attribution_source": attribution_source,
             },
         ))
     rows.sort(key=lambda r: r.cost_usd, reverse=True)

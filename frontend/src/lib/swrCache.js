@@ -75,3 +75,26 @@ export function bustSwr(prefix = "") {
     if (k.startsWith(PREFIX + prefix)) localStorage.removeItem(k);
   }
 }
+
+// One-time sweep of entries older than STALE_MS. Without this, dead keys from
+// old filter prefixes / grown limits / past periods accumulate to the origin
+// quota (readSwr only purges a key when that exact key is read again), after
+// which every write pays a full evictOldest scan. Runs once on module load.
+export function sweepStale() {
+  const now = Date.now();
+  for (const k of Object.keys(localStorage)) {
+    if (!k.startsWith(PREFIX)) continue;
+    try {
+      const ts = JSON.parse(localStorage.getItem(k))?.ts || 0;
+      if (now - ts > STALE_MS) localStorage.removeItem(k);
+    } catch {
+      localStorage.removeItem(k); // unparseable — drop it
+    }
+  }
+}
+
+try {
+  sweepStale();
+} catch {
+  // localStorage unavailable (private mode / disabled) — non-fatal.
+}

@@ -8,6 +8,7 @@ mixing local tz and UTC; these helpers eliminate that class of bug.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from aws_cost_ultra.core.types import TimeWindow
 
@@ -46,27 +47,64 @@ def month_before_last() -> TimeWindow:
     return TimeWindow(start=prev_first, end=lm.start)
 
 
-def remainder_of_current_month() -> TimeWindow:
-    """Today's UTC midnight → 1st of next month. For CE forecast calls.
+def remainder_of_current_month() -> Optional[TimeWindow]:
+    """Tomorrow's UTC midnight → 1st of next month. For CE forecast calls.
 
-    CE's ``get_cost_forecast`` allows Start = today, so we start at today's
-    UTC midnight rather than tomorrow — otherwise the partial current day's
-    spend is dropped from the forecast. Its results project only across the
-    queried window.
+    Starts *tomorrow*, not today: month-to-date actuals already include
+    today's partial-day spend (``TimeWindow.iso`` rounds the exclusive End
+    up past today), so a forecast that also started today would double-count
+    the current day. The forecast therefore covers only the days strictly
+    after today.
+
+    Returns ``None`` on the last day of the month — there is no remainder to
+    forecast, so the caller should fall back to the actual MTD total alone.
     """
-    start = _utc_today_midnight()
-    if start.month == 12:
-        end = start.replace(year=start.year + 1, month=1, day=1)
+    tomorrow = _utc_today_midnight() + timedelta(days=1)
+    if tomorrow.month == 12:
+        end = tomorrow.replace(year=tomorrow.year + 1, month=1, day=1)
     else:
-        end = start.replace(month=start.month + 1, day=1)
-    # Guard: on the 1st of a month, start (today midnight) == end (1st of next
-    # month) would only collide on the last day of the month if start were
-    # tomorrow; with start=today the sole edge is start==end never happening
-    # since end is always the *next* month's 1st > today. Keep an explicit
-    # guard so Start < End always holds and TimeWindow never raises.
-    if start >= end:
-        end = start + timedelta(days=1)
+        end = tomorrow.replace(month=tomorrow.month + 1, day=1)
+    if tomorrow >= end:
+        # Today is the last day of the month — nothing left to forecast.
+        return None
+    return TimeWindow(start=tomorrow, end=end)
+
+
+def month_window(year: int, month: int) -> TimeWindow:
+    """Full calendar month ``[1st 00:00, 1st-of-next-month 00:00)`` in UTC.
+
+    Powers the month-picker periods (e.g. ``2026-05`` → all of May 2026).
+    Both bounds are whole UTC midnights, so ``iso()`` does not round and the
+    window is exactly one calendar month — matching how the AWS console
+    reports a selected month.
+    """
+    if not 1 <= month <= 12:
+        raise ValueError(f"month must be 1..12, got {month}")
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
     return TimeWindow(start=start, end=end)
+
+
+def recent_months(n: int) -> list[tuple[int, int]]:
+    """The ``n`` most recent calendar months, newest first, as (year, month).
+
+    Includes the current month. Used to build the month-picker option list.
+    """
+    if n < 1:
+        raise ValueError("n must be >= 1")
+    now = datetime.now(tz=timezone.utc)
+    y, mo = now.year, now.month
+    out: list[tuple[int, int]] = []
+    for _ in range(n):
+        out.append((y, mo))
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            y -= 1
+    return out
 
 
 def trailing_months(months: int) -> TimeWindow:

@@ -7,22 +7,84 @@ import html
 import json
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from aws_cost_ultra.core.filters import pre_credit_gross
 from aws_cost_ultra.core.service_groups import merge_ec2_service_groups, service_rows_from_groups
-from aws_cost_ultra.core.time_windows import current_month, last_month, month_before_last, remainder_of_current_month
+from aws_cost_ultra.core.time_windows import (
+    current_month,
+    month_before_last,
+    month_window,
+    remainder_of_current_month,
+)
 from aws_cost_ultra.core.types import Granularity, TimeWindow
 from aws_cost_ultra.web.context import friendly_error
-from aws_cost_ultra.web.deps import cache_get, cache_set, get_ce_client, get_cost_source, get_session, period_to_window
+from aws_cost_ultra.web.deps import (
+    cache_get,
+    cache_set,
+    get_ce_client,
+    get_cost_source,
+    get_session,
+    is_valid_period,
+    period_to_window,
+)
 from aws_cost_ultra.web.render import render
 
 router = APIRouter(prefix="/api/cost")
 
+# FINDINGS 47/50: one shared, long-lived pool for the per-request fan-out
+# instead of constructing (and tearing down) a ThreadPoolExecutor per request.
+# Persistent workers mean the per-thread SQLite connections (and their PRAGMAs)
+# are actually reused rather than opened-and-abandoned on every request.
+_FANOUT_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="acu-fanout")
 
-_KNOWN_PERIODS = ("mtd", "last_month", "30d", "60d", "90d", "3m", "6m", "12m")
+
+@contextmanager
+def _fanout_pool():
+    # Yields the shared pool WITHOUT shutting it down on exit; callers still
+    # block on each future's .result(), so completion semantics are unchanged.
+    yield _FANOUT_POOL
+
+# A specific calendar month period, e.g. "2026-05".
+_MONTH_PERIOD_RE = __import__("re").compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+
+
+def _safe_period(period: str, default: str = "mtd") -> str:
+    """Clamp a client-supplied period to the validated allow-list.
+
+    Applied at every route entry so an arbitrary string can neither reach a
+    CE call nor inflate the cache-key space (the unbounded-key finding)."""
+    return period if is_valid_period(period) else default
+
+
+def _account_tag(profile: str) -> str:
+    """Resolved account id for ``profile`` from the (cached) profile choices.
+
+    Route-level cache keys are namespaced by account, not just profile name:
+    if a profile is later repointed to a different AWS account (config edit,
+    SSO role change), its stale cached numbers must not be served as the new
+    account's. Returns ``"na"`` when the account can't be resolved cheaply."""
+    try:
+        from aws_cost_ultra.web.context import get_profile_choices
+        for c in get_profile_choices():
+            if c.get("profile") == profile:
+                return c.get("account_id") or "na"
+    except Exception:
+        pass
+    return "na"
+
+
+def _cache_ctx(ckey: str, ctx: dict) -> None:
+    """Persist a built ctx unless it errored or is flagged transient.
+
+    ``_no_cache`` is set by builders when a value (e.g. the forecast) failed
+    transiently and should be retried rather than frozen for the whole TTL."""
+    if ctx.get("error") is None and not ctx.pop("_no_cache", False):
+        cache_set(ckey, ctx)
 
 
 def _json_for_script(value) -> str:
@@ -43,24 +105,56 @@ def _json_for_script(value) -> str:
 
 
 def _trend_granularity_for_period(period: str) -> Granularity:
-    # Month-to-date and short windows need daily points; monthly collapses to 1 bar.
-    if period in ("mtd", "30d", "last_month"):
+    # Daily points for: MTD, short rolling windows, the rolling "3m" (90d)
+    # window — which starts mid-month, so MONTHLY would mislabel its truncated
+    # first/last buckets as full months — and a single specific calendar month.
+    # Longer month-aligned windows (6m/12m) collapse to monthly bars.
+    if period in ("mtd", "30d", "3m", "last_month") or _MONTH_PERIOD_RE.match(period or ""):
         return Granularity.DAILY
     return Granularity.MONTHLY
+
+
+def _window_days(window: TimeWindow) -> int:
+    """Whole-day span of a window using its CE-rounded iso() date strings.
+
+    Computed from iso() (not raw timestamps) so the count is stable across the
+    UTC day — a window's end is ``now`` but iso() rounds it up to the next
+    midnight, so a raw end-minus-start would vary with request time.
+    """
+    s_iso, e_iso = window.iso()
+    return (date.fromisoformat(e_iso) - date.fromisoformat(s_iso)).days
 
 
 def _prev_window(period: str, window: TimeWindow) -> TimeWindow:
     """Window to compare the current ``window`` against.
 
-    For true calendar-month periods stay calendar-aligned; for rolling
-    windows return the immediately-preceding window of the same duration.
+    - ``mtd``: the *same day-of-month slice* of the previous calendar month
+      (e.g. on the 6th, compare against the 1st–6th of last month), matching
+      the AWS console — not the full previous month, which made change_pct
+      structurally negative for most of the month.
+    - ``last_month`` / specific ``YYYY-MM``: the previous full calendar month
+      (month lengths differ, so a duration shift would land mid-month).
+    - rolling windows: the immediately-preceding window of the same whole-day
+      duration, computed in whole days so it doesn't drift with request time.
     """
     if period == "mtd":
-        return last_month()
+        prev_first = (window.start - timedelta(days=1)).replace(day=1)
+        days = _window_days(window)
+        end = prev_first + timedelta(days=days)
+        # Don't spill past the end of the previous month.
+        this_first = window.start
+        if end > this_first:
+            end = this_first
+        return TimeWindow(start=prev_first, end=end)
     if period == "last_month":
         return month_before_last()
-    dur = window.end - window.start
-    return TimeWindow(start=window.start - dur, end=window.start)
+    m = _MONTH_PERIOD_RE.match(period or "")
+    if m:
+        # Previous calendar month relative to the selected month's 1st.
+        prev_first = (window.start - timedelta(days=1)).replace(day=1)
+        return month_window(prev_first.year, prev_first.month)
+    n = _window_days(window)
+    return TimeWindow(start=window.start - timedelta(days=n), end=window.start)
 
 
 def _build_summary_ctx(profile: str, period: str) -> dict:
@@ -75,6 +169,8 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         "period": period,
         "cost_basis_label": "Pre-credit · excludes Credit/Refund · UTC",
     }
+    period = _safe_period(period)
+    ctx["period"] = period
     try:
         session = get_session(profile)
         ce = get_ce_client(session)
@@ -86,7 +182,14 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
 
         window = period_to_window(period)
         prev_window = _prev_window(period, window)
-        fcast_window = remainder_of_current_month()
+
+        # A forecast ("projected end-of-month spend") only makes sense for a
+        # window that reaches into the current month. For a specific historical
+        # month (e.g. viewing April while it's June) there is nothing to
+        # forecast, so skip the forecast + this-month matrix calls entirely.
+        is_specific_month = bool(_MONTH_PERIOD_RE.match(period))
+        fcast_window = None if is_specific_month else remainder_of_current_month()
+        want_forecast = fcast_window is not None
         mtd_window = window if period == "mtd" else current_month()
 
         src = get_cost_source(session)
@@ -95,26 +198,40 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         # is at most 3 CE calls (window, prev, optional mtd) + 1 forecast.
         # Each submit runs inside a copied context so the CE call-counter
         # ContextVar set by middleware propagates into the worker threads.
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with _fanout_pool() as pool:
             f_matrix = pool.submit(
                 contextvars.copy_context().run, src.get_matrix, profile, account_id, window, spec
             )
             f_prev_matrix = pool.submit(
                 contextvars.copy_context().run, src.get_matrix, profile, account_id, prev_window, spec
             )
-            f_forecast = pool.submit(
-                contextvars.copy_context().run, lambda: ce.get_forecast(fcast_window, spec=spec)
+            f_forecast = (
+                pool.submit(
+                    contextvars.copy_context().run, lambda: ce.get_forecast(fcast_window, spec=spec)
+                )
+                if want_forecast else None
             )
             f_mtd_matrix = (
                 pool.submit(
                     contextvars.copy_context().run, src.get_matrix, profile, account_id, mtd_window, spec
                 )
-                if period != "mtd" else None
+                if want_forecast and period != "mtd" else None
             )
 
         m = f_matrix.result()
         prev_m = f_prev_matrix.result()
-        forecast_cv = f_forecast.result()
+        # Distinguish a forecast that is *legitimately* unavailable (CE returns
+        # None — e.g. too little history) from a *transient* failure (throttle/
+        # timeout, surfaced as a raised exception). The former is cacheable; the
+        # latter must NOT be cached, or one throttled call blanks the forecast
+        # card for every viewer for the whole TTL.
+        forecast_cv = None
+        if f_forecast:
+            try:
+                forecast_cv = f_forecast.result()
+            except Exception:
+                forecast_cv = None
+                ctx["_no_cache"] = True
         mtd_m = f_mtd_matrix.result() if f_mtd_matrix else m
 
         # Build a synthetic provenance label for the merged services list.
@@ -156,6 +273,7 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
 
 def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
     ctx: dict = {"error": None, "services": [], "total": 0.0, "cost_basis_label": ""}
+    period = _safe_period(period)
     try:
         session = get_session(profile)
         spec = pre_credit_gross()
@@ -167,7 +285,7 @@ def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
 
         # Copy the context into each worker so the CE call-counter ContextVar
         # set by middleware reaches the pool threads (see X-CE-Calls-Spent).
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with _fanout_pool() as pool:
             f_matrix = pool.submit(
                 contextvars.copy_context().run, src.get_matrix, profile, account_id, window, spec
             )
@@ -192,7 +310,13 @@ def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
         )
 
         groups = merge_ec2_service_groups(m.to_grouped_cost_list(prov))
-        prev_map = {svc: cost for svc, cost in prev_m.by_service()}
+        # Build prev_map from the *merged* prev groups too: the current groups
+        # rename CE's split EC2 rows ("- Compute" / "- Other") into a single
+        # "Amazon Elastic Compute Cloud" line, so a prev_map keyed by raw CE
+        # names would always miss the merged EC2 row and report its previous
+        # spend (and change %) as $0 — for what is usually the largest line item.
+        prev_groups = merge_ec2_service_groups(prev_m.to_grouped_cost_list(prov))
+        prev_map = {g.primary_key(): g.value.amount_usd for g in prev_groups}
 
         effective_limit = limit if limit > 0 else None
         services, total = service_rows_from_groups(groups, prev_map, limit=effective_limit)
@@ -210,14 +334,14 @@ def api_cost_summary(
     profile: str = Query("default"),
     period: str = Query("mtd"),
 ):
-    ckey = f"summary:{profile}:{period}"
+    period = _safe_period(period)
+    ckey = f"summary:{_account_tag(profile)}:{profile}:{period}"
     cached = cache_get(ckey)
     if cached:
         return render(request, "partials/cost_cards.html", cached)
 
     ctx = _build_summary_ctx(profile, period)
-    if ctx.get("error") is None:
-        cache_set(ckey, ctx)
+    _cache_ctx(ckey, ctx)
     return render(request, "partials/cost_cards.html", ctx)
 
 
@@ -226,13 +350,13 @@ def api_cost_summary_data(
     profile: str = Query("default"),
     period: str = Query("mtd"),
 ):
-    ckey = f"summary_json:{profile}:{period}"
+    period = _safe_period(period)
+    ckey = f"summary_json:{_account_tag(profile)}:{profile}:{period}"
     cached = cache_get(ckey)
     if cached:
         return JSONResponse(cached)
     ctx = _build_summary_ctx(profile, period)
-    if ctx.get("error") is None:
-        cache_set(ckey, ctx)
+    _cache_ctx(ckey, ctx)
     return JSONResponse(ctx)
 
 
@@ -244,14 +368,17 @@ def api_cost_services(
     limit: int = Query(0),
     chart: int = Query(0),
 ):
-    ckey = f"services:{profile}:{period}:{limit}"
+    period = _safe_period(period)
+    ckey = f"services:{_account_tag(profile)}:{profile}:{period}:{limit}"
     cached = cache_get(ckey)
-    if cached and not chart:
-        return render(request, "partials/service_table.html", cached)
 
-    ctx = _build_services_ctx(profile, period, limit)
-    if ctx.get("error") is None:
-        cache_set(ckey, ctx)
+    # The chart only needs the top-10 services, which the cached ctx already
+    # has — so serve it from cache when present instead of recomputing both CE
+    # matrices (+ STS) on every chart render. Only build (and cache) on a miss.
+    ctx = cached
+    if ctx is None:
+        ctx = _build_services_ctx(profile, period, limit)
+        _cache_ctx(ckey, ctx)
 
     if chart:
         labels = [s["name"][:24] for s in ctx.get("services", [])[:10]]
@@ -272,13 +399,13 @@ def api_cost_services_data(
     period: str = Query("mtd"),
     limit: int = Query(0),
 ):
-    ckey = f"services_json:{profile}:{period}:{limit}"
+    period = _safe_period(period)
+    ckey = f"services_json:{_account_tag(profile)}:{profile}:{period}:{limit}"
     cached = cache_get(ckey)
     if cached:
         return JSONResponse(cached)
     ctx = _build_services_ctx(profile, period, limit)
-    if ctx.get("error") is None:
-        cache_set(ckey, ctx)
+    _cache_ctx(ckey, ctx)
     return JSONResponse(ctx)
 
 
@@ -316,14 +443,45 @@ def _bucket_for_usage_type(usage_type: str) -> str:
         "BoxUsage", "SpotUsage", "HeavyUsage", "DedicatedUsage",
         "InstanceUsage", "Lambda-GB-Second", "Lambda-Edge",
         "Multi-AZ", "ServerlessUsage", "GB-Hours",
+        "Fargate", "vCPU", "NodeUsage", "CPUCredits",
     )
     if any(m in ut for m in compute_markers):
         return "compute"
     return "other"
 
 
+# FINDING 41: USAGE_TYPE cardinality is regional (e.g. "USE1-BoxUsage:m5.large",
+# "APN1-BoxUsage:m5.large", ...), so a single service on a many-region account can
+# carry thousands of distinct types. Cap the serialized detail list to the top-N by
+# cost and roll the long tail into one "other" row so the cached JSON stays bounded
+# while the displayed total still reconciles.
+_USAGE_TYPES_PER_SERVICE_CAP = 50
+
+
+def _cap_usage_types(usage_map: dict[str, float], cap: int = _USAGE_TYPES_PER_SERVICE_CAP) -> list[dict]:
+    rows = sorted(
+        (
+            {"usage_type": ut, "bucket": _bucket_for_usage_type(ut), "cost": round(cost, 4)}
+            for ut, cost in usage_map.items()
+        ),
+        key=lambda r: r["cost"],
+        reverse=True,
+    )
+    if cap is not None and cap >= 0 and len(rows) > cap:
+        head = rows[:cap]
+        tail = rows[cap:]
+        head.append({
+            "usage_type": f"other ({len(tail)} types)",
+            "bucket": "other",
+            "cost": round(sum(r["cost"] for r in tail), 4),
+        })
+        rows = head
+    return rows
+
+
 def _build_services_composition_ctx(profile: str, period: str) -> dict:
     ctx: dict = {"error": None, "services": {}, "cost_basis_label": ""}
+    period = _safe_period(period)
     try:
         session = get_session(profile)
         ce = get_ce_client(session)
@@ -331,7 +489,11 @@ def _build_services_composition_ctx(profile: str, period: str) -> dict:
         window = period_to_window(period)
         groups = ce.get_cost_by_service_and_usage_type(window, spec=spec)
 
-        services: dict[str, dict] = {}
+        # Per service: broad-bucket totals (the at-a-glance bar) AND the exact
+        # USAGE_TYPE detail (so "other" is never a black box). Both come from
+        # the single SERVICE × USAGE_TYPE call above — no extra CE budget.
+        buckets_by_svc: dict[str, dict] = {}
+        usage_by_svc: dict[str, dict[str, float]] = {}
         for g in groups:
             if len(g.key) < 2:
                 continue
@@ -340,12 +502,20 @@ def _build_services_composition_ctx(profile: str, period: str) -> dict:
             if svc in _EC2_RAW_NAMES:
                 svc = _EC2_MERGED_NAME
             bucket = _bucket_for_usage_type(ut)
-            entry = services.setdefault(svc, {b: 0.0 for b in _COMPOSITION_BUCKETS})
+            entry = buckets_by_svc.setdefault(svc, {b: 0.0 for b in _COMPOSITION_BUCKETS})
             entry[bucket] += amount
+            # USAGE_TYPE strings are unique per (service, type); a service can
+            # repeat one across regions, so accumulate rather than overwrite.
+            uts = usage_by_svc.setdefault(svc, {})
+            uts[ut] = uts.get(ut, 0.0) + amount
 
         ctx["services"] = {
-            svc: {**buckets, "total": sum(buckets.values())}
-            for svc, buckets in services.items()
+            svc: {
+                **buckets,
+                "total": sum(buckets.values()),
+                "usage_types": _cap_usage_types(usage_by_svc.get(svc, {})),
+            }
+            for svc, buckets in buckets_by_svc.items()
         }
         ctx["buckets"] = list(_COMPOSITION_BUCKETS)
         ctx["cost_basis_label"] = spec.summary() or "Pre-credit gross usage"
@@ -359,20 +529,21 @@ def api_cost_services_composition_data(
     profile: str = Query("default"),
     period: str = Query("mtd"),
 ):
-    ckey = f"services_composition_json:{profile}:{period}"
+    period = _safe_period(period)
+    ckey = f"services_composition_json:{_account_tag(profile)}:{profile}:{period}"
     cached = cache_get(ckey)
     if cached:
         return JSONResponse(cached)
     ctx = _build_services_composition_ctx(profile, period)
-    if ctx.get("error") is None:
-        cache_set(ckey, ctx)
+    _cache_ctx(ckey, ctx)
     return JSONResponse(ctx)
 
 
 @router.get("/trend/data")
 def api_trend_data(profile: str = Query("default"), period: str = Query("3m")):
+    period = _safe_period(period, default="3m")
     gran = _trend_granularity_for_period(period)
-    ckey = f"trend_data:{profile}:{period}:{gran.value}"
+    ckey = f"trend_data:{_account_tag(profile)}:{profile}:{period}:{gran.value}"
     cached = cache_get(ckey)
     if cached:
         return JSONResponse(cached)
@@ -395,9 +566,8 @@ def api_trend_data(profile: str = Query("default"), period: str = Query("3m")):
 
 @router.get("/trend-chart", response_class=HTMLResponse)
 def api_trend_chart(profile: str = Query("default"), period: str = Query("3m")):
-    # Validate period against the known set; profile is neutralised by urlencode.
-    if period not in _KNOWN_PERIODS:
-        period = "3m"
+    # Validate period against the allow-list; profile is neutralised by urlencode.
+    period = _safe_period(period, default="3m")
     qs = urllib.parse.urlencode({"profile": profile, "period": period})
     data_url = f"/api/cost/trend/data?{qs}"
     # Emit the URL into a data-* attribute (HTML-escaped) instead of
@@ -420,8 +590,9 @@ def api_trend_table(
     profile: str = Query("default"),
     period: str = Query("3m"),
 ):
+    period = _safe_period(period, default="3m")
     gran = _trend_granularity_for_period(period)
-    ckey = f"trend_table_html:{profile}:{period}:{gran.value}"
+    ckey = f"trend_table_html:{_account_tag(profile)}:{profile}:{period}:{gran.value}"
     cached = cache_get(ckey)
     if cached:
         return render(request, "partials/trend_table.html", cached)
@@ -453,8 +624,9 @@ def api_trend_table_data(
     profile: str = Query("default"),
     period: str = Query("3m"),
 ):
+    period = _safe_period(period, default="3m")
     gran = _trend_granularity_for_period(period)
-    ckey = f"trend_table_json:{profile}:{period}:{gran.value}"
+    ckey = f"trend_table_json:{_account_tag(profile)}:{profile}:{period}:{gran.value}"
     cached = cache_get(ckey)
     if cached:
         return JSONResponse(cached)

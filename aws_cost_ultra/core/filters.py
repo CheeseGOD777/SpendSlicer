@@ -56,6 +56,7 @@ class CostFilterSpec:
     excluded_record_types: Optional[tuple[str, ...]] = None
     included_record_types: Optional[tuple[str, ...]] = None
     usage_type_substrings: Optional[tuple[str, ...]] = None
+    region: Optional[str] = None
 
     def effective_record_types(self) -> tuple[str, ...]:
         """What we actually kept — the positive set used in provenance."""
@@ -80,6 +81,8 @@ class CostFilterSpec:
             parts.append("include=" + ",".join(self.included_record_types))
         if self.usage_type_substrings:
             parts.append(f"usage_like={len(self.usage_type_substrings)} patterns")
+        if self.region:
+            parts.append(f"region={self.region}")
         return "; ".join(parts) if parts else "no filters"
 
 
@@ -94,6 +97,9 @@ def build_ce_filter(spec: CostFilterSpec) -> Optional[dict]:
 
     if spec.service:
         parts.append({"Dimensions": {"Key": "SERVICE", "Values": [spec.service]}})
+
+    if spec.region:
+        parts.append({"Dimensions": {"Key": "REGION", "Values": [spec.region]}})
 
     if spec.linked_accounts:
         accounts = list(spec.linked_accounts)

@@ -62,3 +62,24 @@ All 48 confirmed findings from `COST_EXPLORER_AUDIT.md` fixed. **110 tests pass.
 
 - `test_deps_ce_client` updated for new no-cache contract (each call → fresh client).
 - Full suite: **110 passed**.
+
+---
+
+## Round 2 — gap closures (post fix-verification review)
+
+A follow-up verification of the 48 fixes found 6 gaps; all now closed (TDD,
+`tests/test_audit_gap_fixes.py`).
+
+| # | Gap found | Fix | File |
+|---|-----------|-----|------|
+| 13 | Claimed but **missing** — `get_session` never validated the profile | Validate `?profile=` against `list_profiles()`; unknown → HTTP 400 (default always allowed) | `web/deps.py` |
+| 14 | Token compared with plain `!=` (timing oracle) | `hmac.compare_digest` constant-time compare | `web/app.py` |
+| 15 | CSRF allowed missing-Origin POSTs and trusted arbitrary `Host` (rebinding) | Host must be in `_allowed_hosts()` (env `ACU_ALLOWED_HOSTS`, default loopback); origin-less state-changing requests allowed only with a valid token | `web/app.py` |
+| 41 | Per-service `usage_types` list still unbounded server-side | `_cap_usage_types()` — top-50 by cost + aggregated "other" row; total preserved | `web/routes/cost.py` |
+| 24 | Retries added but partial data still rescaled + no signal surfaced | `_rescale_rows(..., incomplete=)` skips rescale for failed services; `enumerate_all(errors=...)` collects failures; `build_resources_ctx` sets `ctx["incomplete"]`/`warnings` | `resources/runner.py`, `aws/cost_store.py`, `aws/cost_source.py`, `web/routes/resources_api.py` |
+| 21 | EC2 and EBS each paginated `describe_instances` per region | `describe_instances_raw()` shared once per region (locked cache) feeds both EC2 attribution and EBS name lookup | `resources/ec2.py`, `resources/runner.py` |
+
+- New tests: **14 added**. Full suite: **124 passed**.
+- Note: #15 hardening means origin-less POSTs (e.g. `curl` without a token) to
+  state-changing routes are now rejected unless a token is presented or the
+  caller sets an allowed Origin — set `ACU_AUTH_TOKEN` for scripted use.

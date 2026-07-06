@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import threading
@@ -27,6 +28,35 @@ def _auth_token() -> str:
     return (os.environ.get("ACU_AUTH_TOKEN") or "").strip()
 
 
+def _allowed_hosts() -> set[str]:
+    """Hosts this server is willing to answer state-changing requests for.
+
+    Defaults to loopback only (the documented bind target). Override with
+    ACU_ALLOWED_HOSTS (comma-separated) for non-loopback deployments. Used as
+    an anti-DNS-rebinding / CSRF allow-list (FINDING 15).
+    """
+    env = (os.environ.get("ACU_ALLOWED_HOSTS") or "").strip()
+    if env:
+        return {h.strip().lower() for h in env.split(",") if h.strip()}
+    return {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _host_of(value: str) -> str:
+    """Bare hostname from a Host header authority (drops port, brackets)."""
+    h = (value or "").strip().lower()
+    if h.startswith("["):  # IPv6 literal e.g. [::1]:8080
+        return h[1:].split("]", 1)[0]
+    return h.split(":", 1)[0]
+
+
+def _has_valid_token(request: Request) -> bool:
+    token = _auth_token()
+    if not token:
+        return False
+    presented = request.headers.get("x-acu-token") or request.query_params.get("token") or ""
+    return hmac.compare_digest(presented, token)
+
+
 # Path prefixes that never spend AWS money and stay open regardless of auth.
 # Static is mounted (not subject to app-level dependencies) but listed for clarity.
 _OPEN_PREFIXES = ("/static",)
@@ -43,25 +73,31 @@ def _is_open_path(path: str) -> bool:
 
 
 def _origin_host_allowed(request: Request) -> bool:
-    """CSRF defense: Origin/Referer host must match an allow-list.
+    """CSRF / DNS-rebinding defense for state-changing requests (FINDING 15).
 
-    Allow-list = localhost, 127.0.0.1, and the request's own Host. If neither
-    Origin nor Referer is present (e.g. curl, non-browser), allow — browsers
-    always send these on cross-origin state-changing requests.
+    1. The request's own Host must be in the allow-list — this blocks DNS
+       rebinding (an attacker page resolving their domain to 127.0.0.1 then
+       POSTing here would carry a non-allowed Host).
+    2. If an Origin/Referer is present, its host must also be in the allow-list
+       (blocks classic cross-origin CSRF).
+    3. If neither Origin nor Referer is present, allow only when the request
+       carries a valid token (an authenticated non-browser client such as
+       curl). Previously this case was allowed unconditionally, which left an
+       unauthenticated CSRF hole.
     """
     from urllib.parse import urlsplit
 
+    allowed = _allowed_hosts()
+
+    host = _host_of(request.headers.get("host") or "")
+    if host and host not in allowed:
+        return False
+
     origin = request.headers.get("origin") or request.headers.get("referer")
     if not origin:
-        return True
+        return _has_valid_token(request)
     src_host = (urlsplit(origin).hostname or "").lower()
-    if not src_host:
-        return False
-    allowed = {"localhost", "127.0.0.1"}
-    host_header = (request.headers.get("host") or "").split(":")[0].lower()
-    if host_header:
-        allowed.add(host_header)
-    return src_host in allowed
+    return bool(src_host) and src_host in allowed
 
 
 async def require_auth(request: Request) -> None:
@@ -86,8 +122,9 @@ async def require_auth(request: Request) -> None:
     if not token:
         return  # auth disabled
 
-    presented = request.headers.get("x-acu-token") or request.query_params.get("token")
-    if presented != token:
+    presented = request.headers.get("x-acu-token") or request.query_params.get("token") or ""
+    # Constant-time compare so a timing side-channel can't recover the token.
+    if not hmac.compare_digest(presented, token):
         raise HTTPException(status_code=401, detail="Invalid or missing API token.")
 
 

@@ -96,11 +96,17 @@ class CostExplorerClient:
         )
         total = 0.0
         for period in results:
-            for m in (period.get("Total") or {}).values():
-                total += float(m.get("Amount", 0.0))
-            # When no groups, Total is populated; when groups exist, sum groups:
-            for g in period.get("Groups", []):
-                total += float(g["Metrics"][metric.value]["Amount"])
+            # Read EITHER the requested metric's Total OR the groups — never
+            # both, and never sum across every metric. CE populates Total when
+            # ungrouped and Groups when grouped; summing both (or all metric
+            # entries) silently double-counts if either invariant is relaxed.
+            # Mirror get_trend's if/else.
+            total_dict = period.get("Total") or {}
+            if metric.value in total_dict:
+                total += float(total_dict[metric.value].get("Amount", 0.0))
+            else:
+                for g in period.get("Groups", []):
+                    total += float(g["Metrics"][metric.value]["Amount"])
         return CostValue(
             amount_usd=total,
             provenance=self._build_provenance(
@@ -308,13 +314,16 @@ class CostExplorerClient:
             get_current_counter().add(pages=1)
         except Exception as exc:
             # CE refuses to forecast on <~7 days of history. That's the common
-            # case for fresh accounts — log quietly without a stack trace.
-            # Anything else gets the full traceback so real failures surface.
+            # case for fresh accounts — log quietly and return None (a
+            # legitimately-unavailable forecast that callers may safely cache).
             if type(exc).__name__ == "DataUnavailableException":
                 log.info("cost_forecast skipped: insufficient historical data for this window")
-            else:
-                log.warning("cost_forecast failed: %s", type(exc).__name__, exc_info=True)
-            return None
+                return None
+            # Anything else (throttling, timeout, transient API error) is NOT a
+            # stable "no forecast" answer — re-raise so callers can avoid
+            # caching a blank forecast that a retry would have filled.
+            log.warning("cost_forecast failed: %s", type(exc).__name__, exc_info=True)
+            raise
         return CostValue(
             amount_usd=total,
             provenance=self._build_provenance(

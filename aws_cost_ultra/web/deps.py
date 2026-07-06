@@ -1,7 +1,7 @@
 """FastAPI dependency helpers — session, cache, profile resolution.
 
 The cache is a SQLite-backed store (SqliteCache) that survives restarts
-and uvicorn --reload cycles without losing warm entries.
+and uvicorn --reload cycles without losing warm entries. 
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any, Optional
@@ -16,7 +17,7 @@ from typing import Any, Optional
 log = logging.getLogger(__name__)
 
 import boto3
-from fastapi import Query
+from fastapi import HTTPException, Query
 
 from aws_cost_ultra.aws.cost_explorer import CostExplorerClient
 from aws_cost_ultra.aws.session import list_profiles, make_session
@@ -69,6 +70,10 @@ def cache_bust(prefix: str = "") -> int:
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 
 _refresh_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="acu-refresh")
+# Separate pool for HEAVY producers (full resource enumeration across regions —
+# minutes per key). Keeping them off _refresh_pool stops a few heavy refreshes
+# from monopolising all workers and starving cheap CE refreshes (FINDING 14).
+_heavy_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="acu-refresh-heavy")
 _refreshing: set[str] = set()
 _refresh_lock = threading.Lock()
 
@@ -80,7 +85,7 @@ _MAX_INFLIGHT_REFRESHES = int(os.environ.get("ACU_MAX_INFLIGHT_REFRESHES", "32")
 _inflight_refreshes = 0
 
 
-def schedule_refresh(key: str, producer) -> None:
+def schedule_refresh(key: str, producer, heavy: bool = False) -> None:
     """Fire-and-forget background cache refresh, deduplicated by key.
 
     ``producer`` is a 0-arg callable that returns the new cached value.
@@ -88,13 +93,16 @@ def schedule_refresh(key: str, producer) -> None:
     dropped, so any number of simultaneous stale-hits still triggers
     exactly one upstream fetch. A global in-flight cap sheds new requests
     once too many refreshes are queued/running.
+
+    ``heavy=True`` routes minutes-long resource enumerations to a dedicated
+    pool so they can't monopolise the workers used for cheap CE refreshes.
     """
     with _refresh_lock:
         if key in _refreshing:
             return
         global _inflight_refreshes
         if _inflight_refreshes >= _MAX_INFLIGHT_REFRESHES:
-            log.debug(
+            log.warning(
                 "shedding background refresh for key=%s: in-flight cap %d reached",
                 key, _MAX_INFLIGHT_REFRESHES,
             )
@@ -104,6 +112,14 @@ def schedule_refresh(key: str, producer) -> None:
 
     def _run() -> None:
         global _inflight_refreshes
+        # Give the background producer its OWN CE counter rather than mutating
+        # the triggering request's counter (which the shallow context copy
+        # otherwise shares) — see middleware.set_new_counter (FINDING 40).
+        try:
+            from aws_cost_ultra.web.middleware import set_new_counter
+            set_new_counter()
+        except Exception:
+            pass
         try:
             val = producer()
             if val is not None:
@@ -116,10 +132,21 @@ def schedule_refresh(key: str, producer) -> None:
                 _inflight_refreshes -= 1
 
     # Run the producer in a copy of the request's context so contextvars
-    # (e.g. the CE call counter) propagate into the pool worker instead of
-    # the worker fabricating orphan state.
+    # propagate into the pool worker instead of the worker fabricating orphan
+    # state (the fresh counter above is then set within that copied context).
     ctx = contextvars.copy_context()
-    _refresh_pool.submit(ctx.run, _run)
+    pool = _heavy_pool if heavy else _refresh_pool
+    try:
+        pool.submit(ctx.run, _run)
+    except Exception as exc:
+        # submit() can raise (e.g. RuntimeError if the pool is shutting down).
+        # Without this guard the _refreshing entry and in-flight slot would leak
+        # forever, permanently dropping all future refreshes for this key
+        # (FINDING 41).
+        log.warning("schedule_refresh: submit failed for key=%s: %s", key, type(exc).__name__)
+        with _refresh_lock:
+            _refreshing.discard(key)
+            _inflight_refreshes -= 1
 
 
 # ---------------------------------------------------------------------------
@@ -127,12 +154,29 @@ def schedule_refresh(key: str, producer) -> None:
 # ---------------------------------------------------------------------------
 
 def get_session(profile: str = Query("default")) -> boto3.Session:
+    # FINDING 13: the profile name selects which local AWS credentials (and,
+    # via credential_process, which command) are used. Never pass an arbitrary
+    # client-supplied value to boto3 — validate it against the known profiles
+    # first. "default" is always permitted.
+    if profile and profile != "default" and profile not in set(list_profiles()):
+        raise HTTPException(status_code=400, detail="Unknown AWS profile.")
     p = profile if profile and profile != "default" else None
     try:
         return make_session(profile=p)
     except Exception as exc:
-        log.warning("get_session: make_session failed for profile=%r, falling back to default session: %s", p, type(exc).__name__, exc_info=True)
-        return boto3.Session()
+        # FINDING (audit): do NOT silently fall back to boto3.Session() here.
+        # The default session may resolve to a *different* AWS account, and its
+        # costs would then be cached under the requested profile's cache keys —
+        # serving one account's numbers under another's name. Fail loudly so the
+        # caller surfaces an error instead of showing wrong-account data.
+        log.warning(
+            "get_session: make_session failed for profile=%r: %s",
+            p, type(exc).__name__, exc_info=True,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not initialize AWS session for profile {profile!r}.",
+        ) from exc
 
 
 def get_ce_client(session: boto3.Session) -> CostExplorerClient:
@@ -178,13 +222,39 @@ COMMON_REGIONS: list[tuple[str, str]] = [
 # Period → TimeWindow helper
 # ---------------------------------------------------------------------------
 
+# Rolling/relative range periods. Specific calendar months are handled
+# separately via the YYYY-MM form (see ``_MONTH_PERIOD_RE``).
+_RANGE_PERIODS = ("mtd", "last_month", "30d", "60d", "90d", "3m", "6m", "12m")
+
+# A specific calendar month, e.g. "2026-05". Month 01..12 only.
+_MONTH_PERIOD_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+
+# How many recent calendar months to offer in the month picker.
+_MONTH_PICKER_COUNT = 12
+
+
+def is_valid_period(period: str) -> bool:
+    """True if ``period`` is a known range key or a well-formed YYYY-MM month.
+
+    This is the single allow-list used to validate the client-supplied
+    ``period`` everywhere it is reflected (templates, cache keys, CE calls),
+    closing the reflected-XSS / cache-poisoning vector.
+    """
+    return period in _RANGE_PERIODS or bool(_MONTH_PERIOD_RE.match(period or ""))
+
+
 def period_to_window(period: str):
     from aws_cost_ultra.core.time_windows import (
         current_month,
         last_month,
         last_n_days,
+        month_window,
         trailing_months,
     )
+
+    m = _MONTH_PERIOD_RE.match(period or "")
+    if m:
+        return month_window(int(m.group(1)), int(m.group(2)))
 
     mapping = {
         "mtd":    current_month,
@@ -200,6 +270,39 @@ def period_to_window(period: str):
     }
     fn = mapping.get(period, current_month)
     return fn()
+
+
+def available_periods() -> list[dict]:
+    """Structured period options for the UI, grouped into Ranges and Months.
+
+    Each entry is ``{"value", "label", "group"}``. Ranges (rolling/relative)
+    and specific calendar months coexist so the picker offers both at once.
+    """
+    from aws_cost_ultra.core.time_windows import recent_months
+
+    _MONTH_NAMES = (
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    )
+    ranges = [
+        ("mtd", "Month to date"),
+        ("last_month", "Last month"),
+        ("30d", "Last 30 days"),
+        ("90d", "Last 90 days"),
+        ("3m", "Rolling 3 months"),
+        ("6m", "Trailing 6 months"),
+        ("12m", "Trailing 12 months"),
+    ]
+    out: list[dict] = [
+        {"value": v, "label": label, "group": "Ranges"} for v, label in ranges
+    ]
+    for y, mo in recent_months(_MONTH_PICKER_COUNT):
+        out.append({
+            "value": f"{y:04d}-{mo:02d}",
+            "label": f"{_MONTH_NAMES[mo - 1]} {y}",
+            "group": "Months",
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------

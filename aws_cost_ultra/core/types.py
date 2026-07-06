@@ -6,7 +6,7 @@ Kept intentionally small; each module owns its own domain types.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 
@@ -54,8 +54,23 @@ class TimeWindow:
                    - _days(days), end=now)
 
     def iso(self) -> tuple[str, str]:
-        """CE-friendly ISO date strings (YYYY-MM-DD)."""
-        return self.start.strftime("%Y-%m-%d"), self.end.strftime("%Y-%m-%d")
+        """CE-friendly ISO date strings (YYYY-MM-DD).
+
+        CE's ``End`` is exclusive and date-granular. A window whose ``end``
+        carries a sub-day time component (e.g. ``now``) must round its End
+        date UP to the next UTC day, otherwise today's partial-day spend is
+        silently dropped — and a same-day window (start 00:00, end now, both
+        on the 1st of the month) would collapse to Start == End, which CE
+        rejects with a ValidationException. Whole-midnight ends (calendar
+        month windows) are left untouched.
+        """
+        start_s = self.start.strftime("%Y-%m-%d")
+        end = self.end
+        if end.hour or end.minute or end.second or end.microsecond:
+            end = (end + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+        return start_s, end.strftime("%Y-%m-%d")
 
 
 def _days(n: int):  # pragma: no cover — trivial

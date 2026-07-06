@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import boto3
 from botocore.config import Config
@@ -22,6 +22,36 @@ from .base import AttributedResource, clamp_window, hours_between, tag_name, tag
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 _FALLBACK_SOURCE = "cost_explorer_usage_type"
+
+
+def describe_instances_raw(session: boto3.Session, region: str) -> list[dict]:
+    """One ``describe_instances`` scan for a region → flat list of instance dicts.
+
+    FINDING 21: EC2 attribution and EBS's id→name lookup both need the region's
+    instances. Centralizing the scan here lets the runner fetch it once per
+    region and feed both, instead of paginating ``describe_instances`` twice.
+    """
+    ec2 = session.client("ec2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
+    out: list[dict] = []
+    for page in ec2.get_paginator("describe_instances").paginate():
+        for res in page.get("Reservations", []):
+            for inst in res.get("Instances", []):
+                # FINDING 38: keep only the fields the two consumers actually
+                # read (attribution + EBS id→name), not the full raw payload
+                # (NetworkInterfaces, BlockDeviceMappings, SecurityGroups, all
+                # metadata — KBs/instance held for every region for the run).
+                out.append({
+                    "InstanceId": inst.get("InstanceId"),
+                    "InstanceType": inst.get("InstanceType"),
+                    "InstanceLifecycle": inst.get("InstanceLifecycle"),
+                    "LaunchTime": inst.get("LaunchTime"),
+                    "State": {"Name": inst.get("State", {}).get("Name")},
+                    "Placement": {"AvailabilityZone": inst.get("Placement", {}).get("AvailabilityZone", "")},
+                    "PrivateIpAddress": inst.get("PrivateIpAddress", ""),
+                    "PublicIpAddress": inst.get("PublicIpAddress", ""),
+                    "Tags": inst.get("Tags"),
+                })
+    return out
 
 
 def attribute_ec2(
@@ -51,13 +81,21 @@ def attribute_ec2_account(
     window_end: datetime,
     regions: list[str],
     spec: Optional[CostFilterSpec] = None,
+    instances_provider: Optional[Callable[[str], list[dict]]] = None,
 ) -> list[AttributedResource]:
-    """Attribute EC2 across all regions via USAGE_TYPE fallback (no CE RESOURCE_ID)."""
+    """Attribute EC2 across all regions via USAGE_TYPE fallback (no CE RESOURCE_ID).
+
+    ``instances_provider`` (optional, FINDING 21): ``fn(region) -> [instance, ...]``
+    returning the region's already-fetched ``describe_instances`` result, so EC2
+    and EBS share a single scan per region.
+    """
     spec = spec or pre_credit_gross()
     rows: list[AttributedResource] = []
     for region in regions:
+        instances = instances_provider(region) if instances_provider else None
         rows.extend(_attribute_from_usage_type(
             session, ce_client, window_start, window_end, region, spec=spec,
+            instances=instances,
         ))
     rows.sort(key=lambda r: r.cost_usd, reverse=True)
     return rows
@@ -70,6 +108,7 @@ def _attribute_from_usage_type(
     window_end: datetime,
     region: str,
     spec: Optional[CostFilterSpec] = None,
+    instances: Optional[list[dict]] = None,
 ) -> list[AttributedResource]:
     """Legacy USAGE_TYPE + running-hours proportional split."""
     spec = spec or pre_credit_gross()
@@ -106,6 +145,17 @@ def _attribute_from_usage_type(
         if token:
             kwargs["NextPageToken"] = token
         resp = ce_client.get_cost_and_usage(**kwargs)
+        # Count this paid CE page against the per-request counter (this raw
+        # client bypasses CostExplorerClient's own instrumentation).
+        try:
+            from aws_cost_ultra.web.middleware import get_current_counter
+            _results = resp.get("ResultsByTime", [])
+            get_current_counter().add(
+                pages=1,
+                records=sum(len(p.get("Groups", []) or []) for p in _results),
+            )
+        except Exception:
+            pass
         for period in resp.get("ResultsByTime", []):
             for g in period.get("Groups", []):
                 raw = g["Keys"][0]
@@ -130,33 +180,33 @@ def _attribute_from_usage_type(
     if not ce_by_key:
         return []
 
-    ec2 = session.client("ec2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
+    # FINDING 21: reuse a shared per-region scan when provided; otherwise do our own.
+    if instances is None:
+        instances = describe_instances_raw(session, region)
     inst_by_key: dict = defaultdict(list)
-    for page in ec2.get_paginator("describe_instances").paginate():
-        for res in page.get("Reservations", []):
-            for inst in res.get("Instances", []):
-                state = inst["State"]["Name"]
-                if state == "terminated":
-                    continue
-                itype = inst["InstanceType"]
-                lifecycle = "spot" if inst.get("InstanceLifecycle") == "spot" else "ondemand"
-                launch = inst.get("LaunchTime")
-                if state == "running" and launch:
-                    eff_s, eff_e = clamp_window(launch, window_start, window_end)
-                    run_hrs = hours_between(eff_s, eff_e)
-                else:
-                    run_hrs = 0.0
-                inst_by_key[(lifecycle, itype)].append({
-                    "id": inst["InstanceId"],
-                    "name": tag_name(inst.get("Tags"), fallback=inst["InstanceId"]),
-                    "tags": tags_to_dict(inst.get("Tags")),
-                    "type": itype,
-                    "state": state,
-                    "hours": run_hrs,
-                    "az": inst.get("Placement", {}).get("AvailabilityZone", ""),
-                    "private_ip": inst.get("PrivateIpAddress", ""),
-                    "public_ip": inst.get("PublicIpAddress", ""),
-                })
+    for inst in instances:
+        state = inst["State"]["Name"]
+        if state == "terminated":
+            continue
+        itype = inst["InstanceType"]
+        lifecycle = "spot" if inst.get("InstanceLifecycle") == "spot" else "ondemand"
+        launch = inst.get("LaunchTime")
+        if state == "running" and launch:
+            eff_s, eff_e = clamp_window(launch, window_start, window_end)
+            run_hrs = hours_between(eff_s, eff_e)
+        else:
+            run_hrs = 0.0
+        inst_by_key[(lifecycle, itype)].append({
+            "id": inst["InstanceId"],
+            "name": tag_name(inst.get("Tags"), fallback=inst["InstanceId"]),
+            "tags": tags_to_dict(inst.get("Tags")),
+            "type": itype,
+            "state": state,
+            "hours": run_hrs,
+            "az": inst.get("Placement", {}).get("AvailabilityZone", ""),
+            "private_ip": inst.get("PrivateIpAddress", ""),
+            "public_ip": inst.get("PublicIpAddress", ""),
+        })
 
     rows: list[AttributedResource] = []
     for (lifecycle, itype), ce_data in ce_by_key.items():
@@ -223,16 +273,23 @@ def _attribute_from_usage_type(
     return rows
 
 
-def live_instance_names(session: boto3.Session, region: str) -> dict[str, str]:
-    """Fast id→name lookup for EBS attached-instance labels."""
-    ec2 = session.client("ec2", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
+def live_instance_names(
+    session: boto3.Session,
+    region: str,
+    instances: Optional[list[dict]] = None,
+) -> dict[str, str]:
+    """Fast id→name lookup for EBS attached-instance labels.
+
+    FINDING 21: pass ``instances`` (a shared ``describe_instances_raw`` result)
+    to avoid a second ``describe_instances`` scan for a region EC2 already read.
+    """
+    if instances is None:
+        instances = describe_instances_raw(session, region)
     out: dict[str, str] = {}
-    for page in ec2.get_paginator("describe_instances").paginate():
-        for res in page.get("Reservations", []):
-            for inst in res.get("Instances", []):
-                if inst["State"]["Name"] == "terminated":
-                    continue
-                out[inst["InstanceId"]] = tag_name(
-                    inst.get("Tags"), fallback=inst["InstanceId"],
-                )
+    for inst in instances:
+        if inst["State"]["Name"] == "terminated":
+            continue
+        out[inst["InstanceId"]] = tag_name(
+            inst.get("Tags"), fallback=inst["InstanceId"],
+        )
     return out

@@ -9,6 +9,8 @@ from aws_cost_ultra.core.filters import pre_credit_gross
 from aws_cost_ultra.resources import enumerate_all
 from aws_cost_ultra.resources.runner import ALL_REGIONS
 from aws_cost_ultra.web.context import friendly_error
+import re as _re
+
 from aws_cost_ultra.web.deps import (
     cache_get,
     cache_get_swr,
@@ -16,12 +18,25 @@ from aws_cost_ultra.web.deps import (
     get_ce_client,
     get_cost_source,
     get_session,
+    is_valid_period,
     period_to_window,
     schedule_refresh,
 )
 from aws_cost_ultra.web.render import render
 
 router = APIRouter(prefix="/api/resources")
+
+# AWS region code shape, or the ALL_REGIONS sentinel. Clamp unknown values so a
+# client-supplied region can't mint unbounded cache keys (FINDING 20).
+_REGION_RE = _re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
+
+
+def _safe_region(region: str) -> str:
+    return region if (region == ALL_REGIONS or _REGION_RE.match(region or "")) else ALL_REGIONS
+
+
+def _safe_period(period: str) -> str:
+    return period if is_valid_period(period) else "mtd"
 
 # Hard server-side caps on the number of per-resource rows returned to the
 # browser. Even when a caller requests an unbounded list (limit <= 0) we never
@@ -58,6 +73,11 @@ def _normalize_cur_row(r: dict) -> dict:
 
 
 def build_resources_ctx(profile: str, period: str, region: str) -> dict:
+    # Clamp here too (not just in the cache key) so an invalid region/period
+    # can't drive a failing enumeration whose error then gets cached under the
+    # clamped key, poisoning legitimate requests.
+    region = _safe_region(region)
+    period = _safe_period(period)
     ctx: dict = {
         "error": None,
         "rows": [],
@@ -69,11 +89,17 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         "service": "",
         "services_summary": [],
         "cost_basis_label": "Pre-credit · CE ground truth",
+        "incomplete": False,
+        "warnings": [],
     }
     try:
         session = get_session(profile)
         spec = pre_credit_gross()
         window = period_to_window(period)
+
+        # FINDING 24: collect per-service attribution failures so we can warn the
+        # user that results may be incomplete instead of silently showing low totals.
+        attr_errors: list[dict] = []
 
         # Try CostSource path: CUR when available, describe-based fallback otherwise.
         try:
@@ -81,12 +107,20 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
             src = get_cost_source(session)
             # CostSource handles CUR-first / CE-describe fallback internally.
             # Both paths return the same simplified dict shape, so always normalize.
-            raw_rows = src.attribute_resources(account_id, window, session=session, spec=spec)
+            raw_rows = src.attribute_resources(account_id, window, session=session, spec=spec, errors=attr_errors)
             ctx["rows"] = [_normalize_cur_row(r) for r in raw_rows]
         except Exception:
             # Any error in CostSource wiring falls back to existing describe path.
-            rows = enumerate_all(session, window, region=region, spec=spec)
+            rows = enumerate_all(session, window, region=region, spec=spec, errors=attr_errors)
             ctx["rows"] = [r.to_dict() for r in rows]
+
+        if attr_errors:
+            ctx["incomplete"] = True
+            failed = sorted({e.get("service", "?") for e in attr_errors})
+            ctx["warnings"] = [
+                f"Attribution incomplete — {', '.join(failed)} failed after retries; "
+                "shown costs for those services may be understated."
+            ]
 
         ctx["total"] = sum(r["cost"] for r in ctx["rows"])
 
@@ -111,6 +145,30 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         ctx["unattributed_pct"] = (
             ctx["unattributed"] / ctx["ce_total"] * 100 if ctx["ce_total"] > 0 else 0.0
         )
+
+        # FINDING 24: cap the row list BEFORE caching (totals/services_summary
+        # above are already computed from the full set). Otherwise the cached
+        # blob — and every per-request dict() copy + re-sort — grows unbounded
+        # with account size, even though the response only ever serves
+        # <= _MAX_ROW_CAP rows. Keep the top rows by cost; collapse the tail
+        # into one aggregate row so the displayed total still reconciles.
+        all_rows = sorted(ctx["rows"], key=lambda r: r.get("cost", 0.0), reverse=True)
+        if len(all_rows) > _MAX_ROW_CAP:
+            head = all_rows[:_MAX_ROW_CAP]
+            tail = all_rows[_MAX_ROW_CAP:]
+            tail_cost = sum(r.get("cost", 0.0) for r in tail)
+            head.append({
+                "resource_id": "aggregate:other-resources",
+                "name": f"{len(tail)} more resources",
+                "service": "Other",
+                "tags": {},
+                "cost": round(tail_cost, 4),
+                "usage_amount": None,
+                "aggregate": True,
+            })
+            ctx["rows"] = head
+        else:
+            ctx["rows"] = all_rows
     except Exception as exc:
         ctx["error"] = friendly_error(exc)
     return ctx
@@ -125,13 +183,13 @@ def api_resources(
     service: str = Query(""),
     limit: int = Query(0),
 ):
-    ckey = f"resources:{profile}:{period}:{region}"
+    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         cached = build_resources_ctx(profile, period, region)
         cache_set(ckey, cached)
     elif should_refresh:
-        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region))
+        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
 
     ctx = dict(cached)
     ctx["service"] = service
@@ -153,13 +211,13 @@ def api_resources_data(
     service: str = Query(""),
     limit: int = Query(0),
 ):
-    ckey = f"resources:{profile}:{period}:{region}"
+    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         cached = build_resources_ctx(profile, period, region)
         cache_set(ckey, cached)
     elif should_refresh:
-        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region))
+        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
 
     ctx = dict(cached)
     rows = list(ctx.get("rows", []))
@@ -197,10 +255,10 @@ def api_resources_top_data(
     limit: int = Query(10),
 ):
     # Fast path for dashboard: never block first paint on full attribution scan.
-    ckey = f"resources:{profile}:{period}:{region}"
+    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
-        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region))
+        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
         return JSONResponse({
             "error": None,
             "rows": [],
@@ -216,7 +274,7 @@ def api_resources_top_data(
             "cost_basis_label": "Pre-credit · CE ground truth",
         })
     if should_refresh:
-        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region))
+        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
 
     rows = sorted(list(cached.get("rows", [])), key=lambda r: r.get("cost", 0.0), reverse=True)[:limit]
     ctx = dict(cached)
@@ -234,7 +292,7 @@ def api_resources_services(
     region: str = Query(ALL_REGIONS),
     active_service: str = Query(""),
 ):
-    ckey = f"resources:{profile}:{period}:{region}"
+    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached = cache_get(ckey)
     services_summary = (cached or {}).get("services_summary", []) if cached else []
     ctx = {
@@ -253,7 +311,7 @@ def api_resources_services_data(
     period: str = Query("mtd"),
     region: str = Query(ALL_REGIONS),
 ):
-    ckey = f"resources:{profile}:{period}:{region}"
+    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached = cache_get(ckey)
     if not cached:
         cached = build_resources_ctx(profile, period, region)

@@ -22,9 +22,13 @@ const getJson = async (path, params = {}, opts = {}) => {
     const res = await fetch(`${path}${qs ? `?${qs}` : ""}`, { signal: opts.signal });
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     const data = await res.json();
+    // Sanitize header-derived numbers: a malformed header (proxy mangling,
+    // "0,01") would yield NaN, which then poisons the session cost meter
+    // permanently (NaN propagates through every later accumulation).
+    const finite = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
     const meta = {
-      ceCalls: Number(res.headers.get("X-CE-Calls-Spent") || 0),
-      ceCostUsd: Number(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
+      ceCalls: finite(res.headers.get("X-CE-Calls-Spent") || 0),
+      ceCostUsd: finite(res.headers.get("X-CE-Estimated-Cost-USD") || 0),
       fromCache: null,
     };
     // Don't cache transient placeholders (e.g. resources/top returns

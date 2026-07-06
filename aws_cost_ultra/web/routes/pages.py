@@ -65,13 +65,17 @@ def export_page(request: Request, profile: str = Query("default"), period: str =
 
 @router.get("/api/ui/context")
 def ui_context(profile: str = Query("default"), period: str = Query("mtd")):
+    from aws_cost_ultra.web.deps import available_periods
+
     ctx = base_ctx(profile, period, "dashboard")
     return JSONResponse({
         "active_profile": ctx["active_profile"],
         "period": ctx["period"],
         "profiles": ctx["profiles"],
         "profile_choices": ctx["profile_choices"],
-        "periods": [{"value": value, "label": label} for value, label in ctx["periods"]],
+        # Grouped {value,label,group} so the picker can show Ranges and Months
+        # as separate <optgroup>s while both remain selectable simultaneously.
+        "periods": available_periods(),
         "regions": [{"value": value, "label": label} for value, label in ctx["regions"]],
         "cost_basis_label": ctx["cost_basis_label"],
     })

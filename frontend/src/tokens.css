@@ -1100,3 +1100,73 @@ tr.svc-row:hover .svc-caret { color: var(--ink); }
   min-width: 48px;
   text-align: right;
 }
+
+/* Exact usage-type drilldown — makes the "other" bucket transparent */
+.comp-ut {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.comp-ut-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+  font-weight: 600;
+}
+.comp-ut-count { color: var(--ink-4); font-size: 11px; }
+.comp-ut-tbl { width: 100%; border-collapse: collapse; }
+.comp-ut-tbl td {
+  padding: 5px 8px 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  vertical-align: middle;
+}
+.comp-ut-tbl tr:last-child td { border-bottom: 0; }
+.comp-ut-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 10px;
+  text-transform: capitalize;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.comp-ut-name {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  width: 100%;
+  word-break: break-all;
+}
+.comp-ut-cost {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.comp-ut-pct {
+  color: var(--ink-4);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 44px;
+  white-space: nowrap;
+}
+.comp-ut-more {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--accent, #1C5E3F);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.comp-ut-more:hover { text-decoration: underline; }

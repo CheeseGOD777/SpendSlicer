@@ -3,21 +3,88 @@
 from __future__ import annotations
 
 import datetime as _dt
+import logging
+import os
 import re
+import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from aws_cost_ultra.core.types import Granularity
 from aws_cost_ultra.core.service_groups import merge_ec2_service_groups
 from aws_cost_ultra.exporters import ScheduledExportConfig, run_scheduled_export
 from aws_cost_ultra.web.context import friendly_error
-from aws_cost_ultra.web.deps import cache_bust, get_ce_client, get_cost_source, get_session, period_to_window
+from aws_cost_ultra.web.deps import (
+    cache_bust,
+    cache_get,
+    cache_set,
+    get_ce_client,
+    get_cost_source,
+    get_session,
+    is_valid_period,
+    period_to_window,
+)
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+# App-owned export directory (mode 0700), not a world-shared /tmp subdir that
+# any local user could pre-create and then read/replace (FINDING 22).
+_EXPORT_DIR = Path(
+    os.environ.get("ACU_EXPORT_DIR", str(Path.home() / ".cache" / "aws_cost_ultra" / "exports"))
+)
+# Prune exported files older than this many seconds on each run (FINDING 48).
+_EXPORT_MAX_AGE_S = 24 * 3600
+# Short TTL cache for the built report, so repeated/concurrent exports of the
+# same (profile, period) don't each re-run STS + CE + full resource enumeration
+# (FINDING 23).
+_REPORT_TTL_S = 300
+
+
+def _app_export_dir() -> Path:
+    _EXPORT_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(_EXPORT_DIR, 0o700)
+    except OSError:
+        pass
+    return _EXPORT_DIR
+
+
+def _prune_old_exports(directory: Path) -> None:
+    cutoff = time.time() - _EXPORT_MAX_AGE_S
+    try:
+        for f in directory.iterdir():
+            try:
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _cached_report(profile: str, period: str) -> tuple[dict, object]:
+    """Return ``(report, session)``, reusing a recently-built report.
+
+    The report (the expensive STS + CE + resource-enumeration product) is
+    cached for a short TTL keyed by profile+period; the session is always
+    fetched fresh (cheap, no API spend) since it isn't serialisable.
+    """
+    period = period if is_valid_period(period) else "mtd"
+    key = f"export_report:{profile}:{period}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached, get_session(profile)
+    report, session = _build_report(profile, period)
+    cache_set(key, report, ttl_seconds=_REPORT_TTL_S, swr_seconds=0.0)
+    return report, session
 
 _FMT_EXT = {"pdf": "pdf", "csv": "csv", "json": "json"}
 _FMT_MEDIA = {
@@ -114,11 +181,11 @@ def api_export_run(
     fmt: str = Query("json"),
 ):
     try:
-        report, session = _build_report(profile, period)
-        # Force a fixed, server-controlled output directory. Never accept a
-        # caller-supplied path (arbitrary dir creation / file write).
-        output_dir = Path(tempfile.gettempdir()) / "cloud-ledger-exports"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        report, session = _cached_report(profile, period)
+        # App-owned dir (mode 0700), never a world-shared /tmp subdir; prune old
+        # exports so they don't accumulate forever.
+        output_dir = _app_export_dir()
+        _prune_old_exports(output_dir)
         config = ScheduledExportConfig(output_dir=str(output_dir), formats=[fmt])
         results = run_scheduled_export(report, config, session=session)
         r = results[0] if results else None
@@ -142,25 +209,32 @@ def api_export_download(
     if fmt not in _FMT_EXT:
         return JSONResponse({"success": False, "error": f"Unsupported format: {fmt}"}, status_code=400)
     try:
-        report, session = _build_report(profile, period)
-        output_dir = Path(tempfile.gettempdir()) / "cloud-ledger-downloads"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        report, session = _cached_report(profile, period)
+        # Per-request private temp dir (unpredictable name, mode 0700) instead
+        # of a fixed world-shared /tmp path a local user could pre-create and
+        # then read or swap the file out from under FileResponse (FINDING 22).
+        output_dir = Path(tempfile.mkdtemp(prefix="acu-dl-"))
         config = ScheduledExportConfig(output_dir=str(output_dir), formats=[fmt])
         results = run_scheduled_export(report, config, session=session)
         r = results[0] if results else None
         if not r or not r.success or not r.destination:
+            shutil.rmtree(output_dir, ignore_errors=True)
             err = r.error if r else "No output"
             return JSONResponse({"success": False, "error": err}, status_code=500)
 
         src = Path(r.destination)
         if not src.exists():
+            shutil.rmtree(output_dir, ignore_errors=True)
             return JSONResponse({"success": False, "error": "Export file missing."}, status_code=500)
 
         filename = _safe_filename(name, _FMT_EXT[fmt])
+        # The downloaded file is a throwaway intermediate — delete the whole
+        # per-request dir after the response finishes streaming (FINDING 48).
         return FileResponse(
             path=src,
             media_type=_FMT_MEDIA[fmt],
             filename=filename,
+            background=BackgroundTask(shutil.rmtree, output_dir, ignore_errors=True),
         )
     except Exception as exc:
         return JSONResponse({"success": False, "error": friendly_error(exc)}, status_code=500)

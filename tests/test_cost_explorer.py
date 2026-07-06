@@ -200,11 +200,28 @@ def test_get_forecast_wraps_response_with_provenance_source_forecast():
     assert v.provenance.source == "forecast"
 
 
-def test_get_forecast_returns_none_when_ce_fails():
+def test_get_forecast_returns_none_on_data_unavailable():
+    # CE legitimately can't forecast (too little history) -> None, which callers
+    # may safely cache as "no forecast".
+    class DataUnavailableException(Exception):
+        pass
+
     ce_client = MagicMock()
-    ce_client.get_cost_forecast.side_effect = Exception("insufficient data")
+    ce_client.get_cost_forecast.side_effect = DataUnavailableException("insufficient data")
     ce = CostExplorerClient(session=MagicMock(), ce_client=ce_client)
     assert ce.get_forecast(_window(15)) is None
+
+
+def test_get_forecast_reraises_transient_error():
+    # A transient failure (throttle/timeout) must NOT be swallowed as None —
+    # re-raise so the caller avoids caching a blank forecast for the whole TTL.
+    import pytest
+
+    ce_client = MagicMock()
+    ce_client.get_cost_forecast.side_effect = Exception("ThrottlingException")
+    ce = CostExplorerClient(session=MagicMock(), ce_client=ce_client)
+    with pytest.raises(Exception):
+        ce.get_forecast(_window(15))
 
 
 # ---------------------------------------------------------------------------

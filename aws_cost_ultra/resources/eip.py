@@ -39,20 +39,21 @@ def attribute_eip(
         tags = tags_to_dict(a.get("Tags"))
         name = tag_name(a.get("Tags"), fallback=a.get("PublicIp") or alloc_id)
 
-        # FINDING 38: describe_addresses exposes no allocation timestamp, so we
-        # cannot precisely clamp the billed window — cost here is a best-effort
-        # full-window estimate at the idle rate. Additionally, an EIP that is
-        # currently ASSOCIATED with a running instance is typically free
-        # (only *idle*/unattached IPv4 addresses incur the hourly charge), so
-        # we do NOT apply the idle rate to associated addresses.
-        if attached:
-            cost = 0.0
-            hours = 0.0
-            cost_basis = "associated — no idle charge applied"
-        else:
-            cost = window_hours * idle_rate
-            hours = window_hours
-            cost_basis = "full-window (allocation time unavailable)"
+        # Since Feb 2024 AWS charges $0.005/hr for EVERY public IPv4 address,
+        # including ones associated with a running instance — not only idle
+        # ones. So apply the rate to associated addresses too; the unattached
+        # flag remains purely a *waste* signal, not a billing gate. (Setting
+        # associated cost to $0 also caused their dollars to be redistributed
+        # onto EBS volumes via the shared EC2-Other rescale.)
+        # FINDING 38: describe_addresses exposes no allocation timestamp, so the
+        # billed window is a best-effort full-window estimate.
+        cost = window_hours * idle_rate
+        hours = window_hours
+        cost_basis = (
+            "full-window @ public-IPv4 rate (allocation time unavailable)"
+            if not attached else
+            "associated — public-IPv4 in-use rate (since Feb 2024)"
+        )
 
         rows.append(AttributedResource(
             service="EIP",

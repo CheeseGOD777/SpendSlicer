@@ -46,23 +46,29 @@ def export_pdf(
             error=f"Puppeteer renderer script not found at {renderer}",
         )
 
+    tmp_input_path = None
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
             json.dump(report, tmp)
             tmp_input_path = Path(tmp.name)
 
-        proc = subprocess.run(
-            [node_bin, str(renderer), str(tmp_input_path), str(dest)],
-            cwd=str(frontend_dir),
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
         try:
-            tmp_input_path.unlink(missing_ok=True)
-        except Exception as exc:
-            log.warning("pdf_export: failed to remove temp input file %s: %s", tmp_input_path, type(exc).__name__, exc_info=True)
+            proc = subprocess.run(
+                [node_bin, str(renderer), str(tmp_input_path), str(dest)],
+                cwd=str(frontend_dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        finally:
+            # Always remove the temp file holding the full report JSON — on
+            # TimeoutExpired/OSError the old code skipped this, leaking the
+            # account's cost data into the shared temp dir on every failed render.
+            try:
+                tmp_input_path.unlink(missing_ok=True)
+            except Exception as exc:
+                log.warning("pdf_export: failed to remove temp input file %s: %s", tmp_input_path, type(exc).__name__, exc_info=True)
 
         if proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "").strip() or "Puppeteer PDF render failed"

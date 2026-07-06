@@ -7,7 +7,9 @@ Supports two backends:
 
 from __future__ import annotations
 
+import html
 import smtplib
+import ssl
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -20,13 +22,18 @@ from .base import ExportResult
 
 
 def _build_html_body(report: dict) -> str:
-    account = report.get("account", "N/A")
-    period = report.get("period", "N/A")
+    # HTML-escape every interpolated value: service names, account, and period
+    # can carry user-controlled strings (cost-category/tag-derived keys, a
+    # profile name with markup), which any tag-capable principal could use to
+    # inject HTML into the email. Mirrors the PDF renderer's esc().
+    account = html.escape(str(report.get("account", "N/A")))
+    period = html.escape(str(report.get("period", "N/A")))
     total = report.get("total_cost_usd", 0.0)
     top = report.get("top_services", [])
 
     rows = "".join(
-        f"<tr><td>{s.get('service', '')}</td><td style='text-align:right'>${s.get('cost_usd', 0):.2f}</td></tr>"
+        f"<tr><td>{html.escape(str(s.get('service', '')))}</td>"
+        f"<td style='text-align:right'>${s.get('cost_usd', 0):.2f}</td></tr>"
         for s in top[:15]
     )
     audit = report.get("audit_summary", {})
@@ -69,7 +76,12 @@ def send_via_ses(
     subj = subject or f"AWS Cost Report — {report.get('account', '')} {report.get('period', '')}"
     dest = ", ".join(to_addresses)
     try:
-        ses = (session or boto3.Session()).client("ses", region_name="us-east-1")
+        # SES sending identities are region-scoped; honour the session's
+        # configured region (fall back to us-east-1 only if none is set), so an
+        # account whose verified identity lives outside us-east-1 doesn't get
+        # MessageRejected on every send.
+        sess = session or boto3.Session()
+        ses = sess.client("ses", region_name=sess.region_name or "us-east-1")
 
         if attachment_path:
             # Use raw MIME for attachments
@@ -136,7 +148,12 @@ def send_via_smtp(
 
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.ehlo()
-            server.starttls()
+            # Pass an explicit default SSL context so STARTTLS performs
+            # certificate AND hostname verification. Without it, smtplib uses a
+            # context that verifies nothing, letting an on-path attacker present
+            # any cert and capture the SMTP credentials sent on the next line.
+            server.starttls(context=ssl.create_default_context())
+            server.ehlo()
             if smtp_user and smtp_password:
                 server.login(smtp_user, smtp_password)
             server.sendmail(from_address, to_addresses, msg.as_string())

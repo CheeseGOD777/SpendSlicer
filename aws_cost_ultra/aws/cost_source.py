@@ -31,7 +31,9 @@ class CostSource:
             return DailyServiceMatrix.from_ce(raw)
         return self._ce.get_matrix(profile, account_id, window, spec)
 
-    def attribute_resources(self, account_id: str, window: _Window, *, session, spec) -> list[dict]:
+    def attribute_resources(self, account_id: str, window: _Window, *, session, spec, errors=None) -> list[dict]:
         if self._use_cur(account_id, window):
             return self._cur.attribute_resources(account_id, window)
-        return self._ce.attribute_resources_via_describe(account_id, window, session=session, spec=spec)
+        return self._ce.attribute_resources_via_describe(
+            account_id, window, session=session, spec=spec, errors=errors,
+        )

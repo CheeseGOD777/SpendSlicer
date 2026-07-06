@@ -104,8 +104,14 @@ function exportPanel() {
       this.running = true;
       this.result = null;
       try {
+        // Emit profile/period as JSON string literals (Jinja `tojson` escapes
+        // <, >, &, quotes into \uXXXX) instead of interpolating them raw into
+        // this template literal, then encodeURIComponent each query value.
+        // Defense-in-depth: `period` is also validated server-side in base_ctx.
+        const profile = {{ active_profile | tojson }};
+        const period = {{ period | tojson }};
         const resp = await fetch(
-          `/api/export/run?profile={{ active_profile }}&period={{ period }}&fmt=${this.format}&output_dir=${encodeURIComponent(this.outputDir)}`,
+          `/api/export/run?profile=${encodeURIComponent(profile)}&period=${encodeURIComponent(period)}&fmt=${encodeURIComponent(this.format)}&output_dir=${encodeURIComponent(this.outputDir)}`,
           { method: 'POST' }
         );
         this.result = await resp.json();

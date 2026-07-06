@@ -48,12 +48,25 @@ def get_profile_choices() -> list[dict]:
 
 
 def base_ctx(profile: str, period: str, active_page: str) -> dict:
-    from aws_cost_ultra.web.deps import COMMON_REGIONS
+    from aws_cost_ultra.web.deps import COMMON_REGIONS, available_periods, is_valid_period
 
     profile_choices = get_profile_choices()
     valid_profiles = [c["profile"] for c in profile_choices]
     if profile not in valid_profiles and valid_profiles:
         profile = valid_profiles[0]
+
+    # Validate the client-supplied period against the allow-list before it is
+    # reflected into any template. ``period`` is interpolated into an inline
+    # <script> JS template literal on the export page, where Jinja's HTML
+    # autoescaping does NOT neutralise backticks or ${...} — so an unvalidated
+    # value is a reflected-XSS vector. Clamp to a safe default on mismatch.
+    if not is_valid_period(period):
+        period = "mtd"
+
+    # Flat (value, label) tuples for the legacy Jinja template (base.html
+    # unpacks two-tuples). The SPA gets the richer grouped list via
+    # /api/ui/context, which calls available_periods() directly.
+    periods = [(p["value"], p["label"]) for p in available_periods()]
 
     return {
         "active_profile": profile,
@@ -62,12 +75,7 @@ def base_ctx(profile: str, period: str, active_page: str) -> dict:
         "profiles": valid_profiles,
         "profile_choices": profile_choices,
         "regions": [("all", "All regions")] + list(COMMON_REGIONS),
-        "periods": [
-            ("mtd", "Month to date"),
-            ("last_month", "Last month"),
-            ("30d", "Last 30 days"),
-            ("3m", "Last 3 months"),
-        ],
+        "periods": periods,
         "cost_basis_label": "Pre-credit · excludes Credit/Refund/Upfront · UTC",
     }
 

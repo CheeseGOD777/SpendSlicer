@@ -46,6 +46,7 @@ def attribute_dynamodb(
 
     # FINDING 23: cap the describe_table loop so an account with thousands of
     # tables doesn't trigger an unbounded serial N+1 fan-out.
+    total_table_count = len(tables)
     if len(tables) > _MAX_DESCRIBE_TABLES:
         log.warning(
             "DynamoDB region=%s has %d tables; describing only first %d",
@@ -98,6 +99,14 @@ def attribute_dynamodb(
         # Accuracy-first: if we attempted activity weighting and got no signal,
         # avoid inventing per-table cost splits.
         return []
+
+    # FINDING (audit): when tables were truncated to the describe cap, the
+    # described tables must only absorb their *coverage* fraction of the CE
+    # total — otherwise the dropped tables' cost (which list_tables ordered
+    # lexicographically, not by spend) silently lands on the survivors. Assign
+    # described tables `coverage` of the pool and emit one synthetic row for the
+    # undescribed remainder so the total still reconciles to CE.
+    coverage = (len(descs) / total_table_count) if total_table_count else 1.0
     rows: list[AttributedResource] = []
     for d in descs:
         name = d.get("TableName", "?")
@@ -116,7 +125,7 @@ def attribute_dynamodb(
             share = 1.0 / len(descs)
         else:
             share = 0.0
-        cost = ce_service_total_usd * share
+        cost = ce_service_total_usd * share * coverage
 
         # FINDING 23: only fetch tags for tables we actually attribute cost to,
         # and only when we're already doing the CW-weighted (non-fast) path —
@@ -143,6 +152,27 @@ def attribute_dynamodb(
                 "size_gb": round(size_bytes / (1024 ** 3), 3),
                 "item_count": item_count,
                 "arn": d.get("TableArn"),
+            },
+        ))
+
+    # Remainder row for the undescribed tables, so their cost is represented
+    # (and not dumped onto the described ones) and the total reconciles to CE.
+    if coverage < 1.0 and ce_service_total_usd > 0:
+        undescribed = total_table_count - len(descs)
+        rows.append(AttributedResource(
+            service="DynamoDB",
+            resource_id=f"ddb:undescribed:{region}",
+            name=f"{undescribed} undescribed tables",
+            resource_type="aggregate",
+            state="active",
+            cost_usd=ce_service_total_usd * (1.0 - coverage),
+            hours=0.0,
+            region=region,
+            tags={},
+            attributes={
+                "aggregate": True,
+                "undescribed_table_count": undescribed,
+                "note": "DynamoDB tables beyond the describe cap — per-table breakdown unavailable",
             },
         ))
     rows.sort(key=lambda r: r.cost_usd, reverse=True)

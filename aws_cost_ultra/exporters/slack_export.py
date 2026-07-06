@@ -77,15 +77,24 @@ def _build_blocks(report: dict) -> list[dict]:
             },
         })
 
-    # Budget breaches / warnings
+    # Budget breaches / warnings. Cap the list: Slack rejects a section whose
+    # text exceeds 3000 chars (and messages over ~50 blocks) with invalid_blocks,
+    # which would drop the ENTIRE notification exactly when many budgets are
+    # breached — i.e. when the alert matters most. Show the worst N and
+    # summarise the rest. Breached sort ahead of warnings.
+    _BUDGET_ALERT_CAP = 10
     flagged = [b for b in budgets if b.get("status") in ("breached", "warning")]
     if flagged:
+        flagged.sort(key=lambda b: 0 if b.get("status") == "breached" else 1)
+        shown = flagged[:_BUDGET_ALERT_CAP]
         blocks.append({"type": "divider"})
         lines = "\n".join(
             f":{'red_circle' if b.get('status') == 'breached' else 'large_yellow_circle'}: "
             f"*{b.get('budget_name')}* — {b.get('breach_reason', b.get('status'))}"
-            for b in flagged
+            for b in shown
         )
+        if len(flagged) > len(shown):
+            lines += f"\n_+{len(flagged) - len(shown)} more budgets flagged_"
         blocks.append({
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"*Budget Alerts:*\n{lines}"},

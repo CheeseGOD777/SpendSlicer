@@ -37,7 +37,17 @@ const PERIOD_LABEL = {
   "6m": "trailing 6 months",
   "12m": "trailing 12 months",
 };
-const periodLabel = (p) => PERIOD_LABEL[p] || p;
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+// Fall back to a friendly "May 2026" for specific-month periods (YYYY-MM).
+const periodLabel = (p) => {
+  if (PERIOD_LABEL[p]) return PERIOD_LABEL[p];
+  const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(p || "");
+  if (m) return `${MONTH_NAMES[Number(m[2]) - 1]} ${m[1]}`;
+  return p;
+};
 
 // Copy text to clipboard with a fallback for insecure contexts (plain HTTP LAN)
 // where navigator.clipboard is unavailable or its write promise rejects.
@@ -123,7 +133,28 @@ function Topbar({ period, setPeriod, profile, setProfile, context }) {
       </div>
       <div className="topbar-controls">
         <select className="btn-ctl is-mono" value={period} onChange={(e) => setPeriod(e.target.value)}>
-          {context?.periods?.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+          {(() => {
+            const periods = context?.periods || [];
+            // When entries carry a `group` (Ranges / Months), render grouped
+            // <optgroup>s so both relative ranges and specific calendar months
+            // are offered together; otherwise fall back to a flat list.
+            const grouped = periods.some((p) => p.group);
+            if (!grouped) {
+              return periods.map((p) => <option key={p.value} value={p.value}>{p.label}</option>);
+            }
+            const order = [];
+            const byGroup = {};
+            for (const p of periods) {
+              const g = p.group || "Other";
+              if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
+              byGroup[g].push(p);
+            }
+            return order.map((g) => (
+              <optgroup key={g} label={g}>
+                {byGroup[g].map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </optgroup>
+            ));
+          })()}
         </select>
         <select className="btn-ctl" value={profile} onChange={(e) => setProfile(e.target.value)}>
           {context?.profile_choices?.map((p) => <option key={p.profile} value={p.profile}>{p.label}</option>)}
@@ -180,6 +211,11 @@ function DashboardPage({ profile, period }) {
   const topResourceMax = Math.max(...topResourcesRows.map((r) => value(r.cost, 1)), 1);
   const palette = ["#1C5E3F", "#2D5478", "#9E3B2E", "#A77418", "#1F6E6E", "#5D3A53", "#6E6048", "#847A6E"];
 
+  // Surface when the figures are being served from stale cache after a fetch
+  // failure (backend down / CE throttled) instead of presenting day-old data
+  // as if it were live (the topbar shows an unconditional "Live" dot).
+  const isStale = [summary, services, trend].some((h) => h.meta?.fromCache === "stale");
+
   return (
     <div className="page">
       <div className="page-h">
@@ -188,6 +224,11 @@ function DashboardPage({ profile, period }) {
           <div className="sub">{profile} <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span> {periodLabel(period)}</div>
         </div>
       </div>
+      {isStale && (
+        <div className="stale-banner" style={{ background: "#A77418", color: "#fff", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
+          Showing cached data — couldn't reach the server for fresh figures. These numbers may be stale.
+        </div>
+      )}
       <div className="kpi-row">
         <Kpi label="Period spend" valueText={summary.loading ? "..." : usd(s.total_mtd)} delta={value(s.change_pct)} note="vs previous period" />
         <Kpi label="Previous period" valueText={summary.loading ? "..." : usd(s.total_prev)} note="comparison baseline" />
@@ -264,7 +305,10 @@ const COMPOSITION_COLORS = {
   other: "#847A6E",          // stone
 };
 
+const USAGE_TYPES_PREVIEW = 8;
+
 function ServiceComposition({ buckets }) {
+  const [showAll, setShowAll] = useState(false);
   if (!buckets) return <div className="comp-empty">No composition data for this service.</div>;
   const total = COMPOSITION_BUCKETS.reduce((s, k) => s + value(buckets[k]), 0);
   if (total <= 0) return <div className="comp-empty">No composition data for this service.</div>;
@@ -272,6 +316,10 @@ function ServiceComposition({ buckets }) {
     .map((k) => ({ key: k, amount: value(buckets[k]), pct: (value(buckets[k]) / total) * 100 }))
     .filter((r) => r.amount > 0)
     .sort((a, b) => b.amount - a.amount);
+
+  const usageTypes = (buckets.usage_types || []).filter((u) => value(u.cost) > 0);
+  const visible = showAll ? usageTypes : usageTypes.slice(0, USAGE_TYPES_PREVIEW);
+
   return (
     <div className="comp-wrap">
       <div className="comp-bar">
@@ -294,15 +342,52 @@ function ServiceComposition({ buckets }) {
           </li>
         ))}
       </ul>
+
+      {usageTypes.length > 0 && (
+        <div className="comp-ut">
+          <div className="comp-ut-head">
+            <span>Exact usage types</span>
+            <span className="comp-ut-count mono">{usageTypes.length}</span>
+          </div>
+          <table className="comp-ut-tbl">
+            <tbody>
+              {visible.map((u) => (
+                <tr key={u.usage_type}>
+                  <td>
+                    <span
+                      className="comp-ut-tag"
+                      style={{ background: COMPOSITION_COLORS[u.bucket] || COMPOSITION_COLORS.other }}
+                    >
+                      {u.bucket}
+                    </span>
+                  </td>
+                  <td className="comp-ut-name mono">{u.usage_type}</td>
+                  <td className="comp-ut-cost mono num">{usd(u.cost, 4)}</td>
+                  <td className="comp-ut-pct mono num">{((value(u.cost) / total) * 100).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {usageTypes.length > USAGE_TYPES_PREVIEW && (
+            <button type="button" className="comp-ut-more" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? "Show less" : `Show all ${usageTypes.length} usage types`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function ServicesPage({ profile, period }) {
   const services = useAsyncData((signal) => api.services(profile, period, 0, { signal }), [profile, period]);
+  // Composition is a multi-MB map of every service's usage-type breakdown and
+  // exceeds the SWR cache size cap (so it's never cached). Don't fetch it on
+  // mount — only once the user actually expands a row to view a breakdown.
+  const [compNeeded, setCompNeeded] = useState(false);
   const composition = useAsyncData(
-    (signal) => api.servicesComposition(profile, period, { signal }),
-    [profile, period],
+    (signal) => (compNeeded ? api.servicesComposition(profile, period, { signal }) : Promise.resolve({ services: {} })),
+    [profile, period, compNeeded],
   );
   const [expanded, setExpanded] = useState(null);
   const [visible, setVisible] = useState(RESOURCE_PAGE_SIZE);
@@ -333,7 +418,7 @@ function ServicesPage({ profile, period }) {
             <tbody>
               {rows.map((row) => {
                 const isOpen = expanded === row.name;
-                const toggle = () => setExpanded(isOpen ? null : row.name);
+                const toggle = () => { setCompNeeded(true); setExpanded(isOpen ? null : row.name); };
                 return (
                   <Fragment key={row.name}>
                     <tr className={`svc-row ${isOpen ? "open" : ""}`} onClick={toggle}>
@@ -393,14 +478,23 @@ function ResourcesPage({ profile, period }) {
   const [limit, setLimit] = useState(RESOURCE_FETCH_LIMIT);
   const [visible, setVisible] = useState(RESOURCE_PAGE_SIZE);
   const debouncedService = useDebounced(service, 300);
+  // Change the service filter AND reset the grown fetch-limit + visible count
+  // together (one batched update). Resetting limit synchronously here — rather
+  // than in an effect that runs AFTER the fetch effect — avoids firing a wasted
+  // large-limit request for the new filter before the limit reset lands.
+  const selectService = (s) => {
+    setService(s);
+    setLimit(RESOURCE_FETCH_LIMIT);
+    setVisible(RESOURCE_PAGE_SIZE);
+  };
   const resources = useAsyncData(
     (signal) => api.resources(profile, period, "all", debouncedService, limit, { signal }),
     [profile, period, debouncedService, limit]
   );
-  // Reset client-side pagination when the filter or fetch size changes.
-  useEffect(() => { setVisible(RESOURCE_PAGE_SIZE); }, [debouncedService, limit]);
-  // Reset the requested fetch limit back to default when the filter changes.
-  useEffect(() => { setLimit(RESOURCE_FETCH_LIMIT); }, [debouncedService]);
+  // Reset client-side pagination only when the filter changes — NOT when the
+  // fetch limit grows, so "Load more from server" doesn't collapse the user's
+  // scroll position back to the first page.
+  useEffect(() => { setVisible(RESOURCE_PAGE_SIZE); }, [debouncedService]);
   if (resources.error) return <div className="loading err">{resources.error}</div>;
   const d = resources.data || {};
   const allRows = d.rows || [];
@@ -433,8 +527,21 @@ function ResourcesPage({ profile, period }) {
       <div className="svc-filter-row">
         <span className="svc-filter-label">Services:</span>
         <div className="pill-tabs">
-          <button type="button" className={`pill-tab ${service === "" ? "dark" : ""}`} onClick={() => setService("")}>All</button>
-          {(d.services_summary || []).map((s) => <button key={s.service} type="button" className={`pill-tab ${service === s.service ? "dark" : ""}`} onClick={() => setService(s.service)}>{s.service}</button>)}
+          <button type="button" className={`pill-tab ${service === "" ? "dark" : ""}`} onClick={() => selectService("")}>All</button>
+          {/* Cap the pill row: services_summary is sorted by cost desc, so the
+              top 15 are the ones worth one-click filtering. Beyond that, a
+              select avoids rendering hundreds of buttons. */}
+          {(d.services_summary || []).slice(0, 15).map((s) => <button key={s.service} type="button" className={`pill-tab ${service === s.service ? "dark" : ""}`} onClick={() => selectService(s.service)}>{s.service}</button>)}
+          {(d.services_summary || []).length > 15 && (
+            <select
+              className="btn-ctl"
+              value={(d.services_summary || []).slice(0, 15).some((s) => s.service === service) ? "" : service}
+              onChange={(e) => selectService(e.target.value)}
+            >
+              <option value="">More services…</option>
+              {(d.services_summary || []).slice(15).map((s) => <option key={s.service} value={s.service}>{s.service}</option>)}
+            </select>
+          )}
         </div>
       </div>
       {resources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
@@ -519,7 +626,7 @@ function AuditPage({ profile }) {
           {budgets.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /></div> : (budgets.data?.findings || []).map((b, idx) => (
             <div className="budget-row" key={b.budget_name}>
               <div className="budget-head"><span className="budget-name">{b.budget_name}</span><span className="budget-amt">{usd(value(b.actual_spend, b.actual_spend_usd))} / {usd(value(b.limit_amount, b.limit_usd))}</span></div>
-              <div className="budget-track"><div className={`budget-fill ${b.status === "breached" ? "danger" : b.status === "warning" ? "warn" : ""}`} style={{ width: `${Math.min(100, value(b.utilization_pct, idx === 0 ? 0 : 10))}%` }} /></div>
+              <div className="budget-track"><div className={`budget-fill ${b.status === "breached" ? "danger" : b.status === "warning" ? "warn" : ""}`} style={{ width: `${Math.min(100, value(b.utilization_pct, 0))}%` }} /></div>
             </div>
           ))}
         </div>
