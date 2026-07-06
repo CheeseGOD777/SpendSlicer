@@ -11,3 +11,14 @@ exports/
 *.duckdb
 *.duckdb.wal
 
+# personal data / local-only working files — never publish
+csv+comparsion/
+aws-other-tools/
+COST_EXPLORER_AUDIT.md
+COST_EXPLORER_FIXES.md
+docs/IMPLEMENTATION.md
+docs/superpowers/
+
+# AI-session tooling state
+.claude/
+.superpowers/
