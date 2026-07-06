@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { useAsyncData } from "./hooks/useAsyncData";
 import { useDebounced } from "./hooks/useDebounced";
 import { Donut, StackedBars } from "./charts";
 import { CostBadge } from "./components/CostBadge";
+import { Banner, StaleBanner } from "./components/Banner";
 import { usd, pct, value } from "./lib/format";
 
 const NAV = [
@@ -185,14 +186,32 @@ function DashboardPage({ profile, period }) {
     return () => clearTimeout(t);
   }, [topResources.data?.warming, warmingTick]);
 
-  if (summary.error) return <div className="loading err">{summary.error}</div>;
+  const pageHooks = [summary, services, trend, topResources];
+  const fatal = summary.error || summary.backendError;
+  if (fatal) {
+    return (
+      <div className="page">
+        <div className="page-h"><div><h1>Dashboard</h1></div></div>
+        <Banner tone="error" onRetry={summary.reload}>{fatal}</Banner>
+      </div>
+    );
+  }
 
   const s = summary.data || {};
   const serviceRows = (services.data?.services || []).slice(0, 6);
   const trendValues = trend.data?.values || [];
   const trendLabels = trend.data?.labels || [];
+  // "2026-01" -> "Jan 26", "2026-01-15" -> "Jan 15" — never a bare month number.
+  const shortLabel = (raw) => {
+    if (!raw) return "";
+    const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(raw);
+    if (!m) return raw;
+    const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mon = MON[Number(m[2]) - 1];
+    return m[3] ? `${mon} ${Number(m[3])}` : `${mon} ${m[1].slice(2)}`;
+  };
   const trendRows = trendValues.map((cost, idx) => ({
-    month: trendLabels[idx]?.slice(5) || trendLabels[idx] || String(idx + 1),
+    month: shortLabel(trendLabels[idx]) || String(idx + 1),
     Spend: value(cost),
   }));
   const trendMax = Math.max(...trendValues, 0);
@@ -202,11 +221,6 @@ function DashboardPage({ profile, period }) {
   const topResourceMax = Math.max(...topResourcesRows.map((r) => value(r.cost, 1)), 1);
   const palette = ["#1C5E3F", "#2D5478", "#9E3B2E", "#A77418", "#1F6E6E", "#5D3A53", "#6E6048", "#847A6E"];
 
-  // Surface when the figures are being served from stale cache after a fetch
-  // failure (backend down / CE throttled) instead of presenting day-old data
-  // as if it were live (the topbar shows an unconditional "Live" dot).
-  const isStale = [summary, services, trend].some((h) => h.meta?.fromCache === "stale");
-
   return (
     <div className="page">
       <div className="page-h">
@@ -215,13 +229,19 @@ function DashboardPage({ profile, period }) {
           <div className="sub">{profile} <span style={{ margin: "0 6px", opacity: 0.5 }}>—</span> {periodLabel(period)}</div>
         </div>
       </div>
-      {isStale && (
-        <div className="stale-banner" style={{ background: "#A77418", color: "#fff", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
-          Showing cached data — couldn't reach the server for fresh figures. These numbers may be stale.
-        </div>
+      <StaleBanner hooks={pageHooks} />
+      {(services.backendError || trend.backendError) && (
+        <Banner tone="warn" onRetry={() => { services.reload(); trend.reload(); }}>
+          Some panels failed to load: {services.backendError || trend.backendError}
+        </Banner>
       )}
       <div className="kpi-row">
-        <Kpi label="Period spend" valueText={summary.loading ? "..." : usd(s.total_mtd)} delta={value(s.change_pct)} note="vs previous period" />
+        <Kpi
+          label="Period spend"
+          valueText={summary.loading ? "..." : usd(s.total_mtd)}
+          delta={s.change_pct == null ? undefined : value(s.change_pct)}
+          note="vs previous period"
+        />
         <Kpi label="Previous period" valueText={summary.loading ? "..." : usd(s.total_prev)} note="comparison baseline" />
         <Kpi label="Forecast" valueText={summary.loading ? "..." : usd(s.forecast)} note="projected month close" />
         <Kpi label="Top service" valueText={summary.loading ? "..." : s.top_service_name || "-"} note={usd(s.top_service_cost)} />
@@ -236,7 +256,7 @@ function DashboardPage({ profile, period }) {
               {trendValues.length > 0 && (
                 <>
                   {" · "}peak <span className="mono">{usd(trendMax, 2)}</span>
-                  {trendPeakLabel ? ` on ${trendPeakLabel.slice(5) || trendPeakLabel}` : ""}
+                  {trendPeakLabel ? ` on ${shortLabel(trendPeakLabel)}` : ""}
                   {" · "}avg <span className="mono">{usd(trendAvg, 2)}</span>
                   {" · "}{trendValues.length} samples
                 </>
@@ -251,16 +271,28 @@ function DashboardPage({ profile, period }) {
         <div className="card">
           <div className="card-title"><div><h2>Service mix</h2><div className="sub" style={{ marginTop: 4 }}>Share of period spend</div></div></div>
           {services.loading ? <div className="skel skel-kpi" /> : (
-            <Donut data={serviceRows.map((row, idx) => ({
-              key: String(idx), name: (row.name || "Unknown").replace("Amazon ", "").replace("AWS ", ""), value: value(row.cost), color: palette[idx % palette.length],
-            }))} />
+            (() => {
+              const grandTotal = value(services.data?.total);
+              const topSum = serviceRows.reduce((a, r) => a + value(r.cost), 0);
+              const other = Math.max(0, grandTotal - topSum);
+              const segs = serviceRows.map((row, idx) => ({
+                key: String(idx),
+                name: (row.name || "Unknown").replace("Amazon ", "").replace("AWS ", ""),
+                value: value(row.cost),
+                color: palette[idx % palette.length],
+              }));
+              if (other > 0.005) segs.push({ key: "other", name: "Other", value: other, color: "#847A6E" });
+              return <Donut data={segs} />;
+            })()
           )}
         </div>
 
         <div className="tbl-wrap">
           <div className="tbl-head-row"><h2>Top 10 resources</h2></div>
-          {topResources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : topResources.error ? (
-            <div className="loading err">Resources unavailable right now. Please retry in a few seconds.</div>
+          {topResources.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : topResources.error || topResources.backendError ? (
+            <Banner tone="error" onRetry={topResources.reload}>
+              Resources unavailable right now: {topResources.error || topResources.backendError}
+            </Banner>
           ) : topResources.data?.warming ? (
             <div className="loading">Resource attribution is warming up. Refresh in a few seconds.</div>
           ) : (
@@ -273,7 +305,7 @@ function DashboardPage({ profile, period }) {
                     <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name || row.resource_id}</td>
                     <td className="num">{usd(row.cost)}
                       <div className="cell-bar-track" style={{ marginTop: 6, maxWidth: 140, marginLeft: "auto" }}>
-                        <div className="cell-bar-fill" style={{ width: `${(value(row.cost) / topResourceMax) * 100}%` }} />
+                        <div className="cell-bar-fill" style={{ width: `${Math.max(0, Math.min(100, (value(row.cost) / topResourceMax) * 100))}%` }} />
                       </div>
                     </td>
                   </tr>
@@ -382,7 +414,14 @@ function ServicesPage({ profile, period }) {
   );
   const [expanded, setExpanded] = useState(null);
   const [visible, setVisible] = useState(RESOURCE_PAGE_SIZE);
-  if (services.error) return <div className="loading err">{services.error}</div>;
+  if (services.error || services.backendError) {
+    return (
+      <div className="page">
+        <div className="page-h"><div><h1>Services</h1></div></div>
+        <Banner tone="error" onRetry={services.reload}>{services.error || services.backendError}</Banner>
+      </div>
+    );
+  }
   const compMap = composition.data?.services || {};
   const allRows = services.data?.services || [];
   const rows = allRows.slice(0, visible);
@@ -394,6 +433,7 @@ function ServicesPage({ profile, period }) {
           <div className="sub">Click a row to see what's driving its bill (compute, storage, data transfer, network).</div>
         </div>
       </div>
+      <StaleBanner hooks={[services]} />
       {services.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /><div className="skel skel-row" /></div> : (
         <div className="tbl-wrap">
           <table className="tbl tbl-svc">
@@ -448,10 +488,13 @@ function ServicesPage({ profile, period }) {
 
 function CopyIdButton({ resourceId }) {
   const [copied, setCopied] = useState(null); // null | "ok" | "fail"
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
   const onCopy = async () => {
     const ok = await copyToClipboard(resourceId);
     setCopied(ok ? "ok" : "fail");
-    setTimeout(() => setCopied(null), 1500);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(null), 1500);
   };
   return (
     <button
@@ -486,7 +529,14 @@ function ResourcesPage({ profile, period }) {
   // fetch limit grows, so "Load more from server" doesn't collapse the user's
   // scroll position back to the first page.
   useEffect(() => { setVisible(RESOURCE_PAGE_SIZE); }, [debouncedService]);
-  if (resources.error) return <div className="loading err">{resources.error}</div>;
+  if (resources.error || resources.backendError) {
+    return (
+      <div className="page">
+        <div className="page-h"><div><h1>Resources</h1></div></div>
+        <Banner tone="error" onRetry={resources.reload}>{resources.error || resources.backendError}</Banner>
+      </div>
+    );
+  }
   const d = resources.data || {};
   const allRows = d.rows || [];
   const shownRows = allRows.slice(0, visible);
@@ -515,6 +565,12 @@ function ResourcesPage({ profile, period }) {
           <div className="recon-stat"><span className="recon-stat-label">Drift</span><span className="recon-stat-val drift">{usd(d.unattributed)}</span></div>
         </div>
       </div>
+      {(d.incomplete || (d.warnings || []).length > 0) && (
+        <Banner tone="warn" onRetry={resources.reload}>
+          {(d.warnings || []).join(" ") || "Attribution incomplete — attributed totals may be understated."}
+        </Banner>
+      )}
+      <StaleBanner hooks={[resources]} />
       <div className="svc-filter-row">
         <span className="svc-filter-label">Services:</span>
         <div className="pill-tabs">
@@ -527,9 +583,9 @@ function ResourcesPage({ profile, period }) {
             <select
               className="btn-ctl"
               value={(d.services_summary || []).slice(0, 15).some((s) => s.service === service) ? "" : service}
-              onChange={(e) => selectService(e.target.value)}
+              onChange={(e) => { if (e.target.value) selectService(e.target.value); }}
             >
-              <option value="">More services…</option>
+              <option value="" disabled>More services…</option>
               {(d.services_summary || []).slice(15).map((s) => <option key={s.service} value={s.service}>{s.service}</option>)}
             </select>
           )}
@@ -557,7 +613,9 @@ function ResourcesPage({ profile, period }) {
                   <td><strong>{r.name || r.resource_id}</strong></td>
                   <td className="muted">{r.service}</td>
                   <td>
-                    <CopyIdButton resourceId={r.resource_id} />
+                    {String(r.resource_id).startsWith("aggregate:")
+                      ? <span className="muted faint">{r.resource_id}</span>
+                      : <CopyIdButton resourceId={r.resource_id} />}
                   </td>
                   <td className="num">{usd(r.cost, 2)}</td>
                 </tr>
@@ -602,7 +660,14 @@ function ResourcesPage({ profile, period }) {
 function AuditPage({ profile }) {
   const audit = useAsyncData((signal) => api.audit(profile, "all", { signal }), [profile]);
   const budgets = useAsyncData((signal) => api.budgets(profile, { signal }), [profile]);
-  if (audit.error) return <div className="loading err">{audit.error}</div>;
+  if (audit.error) {
+    return (
+      <div className="page">
+        <div className="page-h"><div><h1>Audit</h1></div></div>
+        <Banner tone="error" onRetry={audit.reload}>{audit.error}</Banner>
+      </div>
+    );
+  }
   return (
     <div className="page">
       <div className="page-h">
@@ -611,12 +676,26 @@ function AuditPage({ profile }) {
           <div className="sub">Budgets, idle resources, untagged spend</div>
         </div>
       </div>
+      {audit.backendError && (
+        <Banner tone="warn" onRetry={audit.reload}>
+          {audit.backendError} — the counts below may be incomplete.
+        </Banner>
+      )}
+      {budgets.backendError && (
+        <Banner tone="warn" onRetry={budgets.reload}>Budgets: {budgets.backendError}</Banner>
+      )}
+      <StaleBanner hooks={[audit, budgets]} />
       <div className="grid-2" style={{ marginBottom: 20 }}>
         <div className="budget-card">
           <h2 style={{ marginTop: 0 }}>Budgets</h2>
           {budgets.loading ? <div><div className="skel skel-row" /><div className="skel skel-row" /></div> : (budgets.data?.findings || []).map((b, idx) => (
             <div className="budget-row" key={b.budget_name}>
-              <div className="budget-head"><span className="budget-name">{b.budget_name}</span><span className="budget-amt">{usd(value(b.actual_spend, b.actual_spend_usd))} / {usd(value(b.limit_amount, b.limit_usd))}</span></div>
+              <div className="budget-head">
+                <span className="budget-name">{b.budget_name}</span>
+                <span className="budget-amt">
+                  {b.actual_spend == null ? "—" : usd(value(b.actual_spend))} / {b.limit_amount == null ? "—" : usd(value(b.limit_amount))}
+                </span>
+              </div>
               <div className="budget-track"><div className={`budget-fill ${b.status === "breached" ? "danger" : b.status === "warning" ? "warn" : ""}`} style={{ width: `${Math.min(100, value(b.utilization_pct, 0))}%` }} /></div>
             </div>
           ))}
@@ -633,16 +712,16 @@ function AuditPage({ profile }) {
 function ExportPage({ profile, period }) {
   const [fmt, setFmt] = useState("pdf");
   const [fileName, setFileName] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(null); // null | {ok: boolean, msg: string}
   const [running, setRunning] = useState(false);
   const runExport = async () => {
     setRunning(true);
-    setStatus("Report is generating...");
+    setStatus({ ok: true, msg: "Report is generating..." });
     try {
       const res = await api.downloadExport(profile, period, fmt, fileName);
-      setStatus(`Downloaded: ${res.filename}`);
+      setStatus({ ok: true, msg: `Downloaded: ${res.filename}` });
     } catch (err) {
-      setStatus(err.message || "Export failed");
+      setStatus({ ok: false, msg: err.message || "Export failed" });
     } finally {
       setRunning(false);
     }
@@ -671,7 +750,7 @@ function ExportPage({ profile, period }) {
         <button className="btn btn-primary" onClick={runExport} disabled={running}>
           {running ? "Generating…" : "Generate report"}
         </button>
-        {status ? <div style={{ marginTop: 14, fontFamily: "var(--font-mono)", fontSize: 12.5, color: status.startsWith("Failed") || status.startsWith("Export") ? "var(--neg)" : "var(--ink-3)" }}>{status}</div> : null}
+        {status ? <div style={{ marginTop: 14, fontFamily: "var(--font-mono)", fontSize: 12.5, color: status.ok ? "var(--ink-3)" : "var(--neg)" }}>{status.msg}</div> : null}
       </div>
     </div>
   );
