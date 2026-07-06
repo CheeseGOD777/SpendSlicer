@@ -258,7 +258,8 @@ def api_budgets_data(profile: str = Query("default")):
     except Exception as exc:
         ctx["error"] = friendly_error(exc)
 
-    cache_set(ckey, ctx)
+    if ctx.get("error") is None:
+        cache_set(ckey, ctx)
     return JSONResponse(ctx)
 
 

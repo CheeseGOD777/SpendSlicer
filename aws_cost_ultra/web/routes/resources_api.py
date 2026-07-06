@@ -185,7 +185,8 @@ def api_resources_data(
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         cached = build_resources_ctx(profile, period, region)
-        cache_set(ckey, cached)
+        if cached.get("error") is None:
+            cache_set(ckey, cached)
     elif should_refresh:
         schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
 
@@ -250,7 +251,8 @@ def api_resources_services_data(
     cached = cache_get(ckey)
     if not cached:
         cached = build_resources_ctx(profile, period, region)
-        cache_set(ckey, cached)
+        if cached.get("error") is None:
+            cache_set(ckey, cached)
     return JSONResponse({
         "services_summary": cached.get("services_summary", []),
         "profile": profile,

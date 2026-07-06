@@ -681,8 +681,8 @@ function AuditPage({ profile }) {
           {audit.backendError} — the counts below may be incomplete.
         </Banner>
       )}
-      {budgets.backendError && (
-        <Banner tone="warn" onRetry={budgets.reload}>Budgets: {budgets.backendError}</Banner>
+      {(budgets.error || budgets.backendError) && (
+        <Banner tone="warn" onRetry={budgets.reload}>Budgets: {budgets.error || budgets.backendError}</Banner>
       )}
       <StaleBanner hooks={[audit, budgets]} />
       <div className="grid-2" style={{ marginBottom: 20 }}>

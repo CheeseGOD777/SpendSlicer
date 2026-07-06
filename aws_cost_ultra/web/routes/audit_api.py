@@ -80,7 +80,8 @@ def api_audit_summary_data(
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         cached = build_audit_ctx(profile, region, include_snapshots)
-        cache_set(ckey, cached)
+        if cached.get("error") is None:
+            cache_set(ckey, cached)
     elif should_refresh:
         schedule_refresh(
             ckey, lambda: build_audit_ctx(profile, region, include_snapshots),

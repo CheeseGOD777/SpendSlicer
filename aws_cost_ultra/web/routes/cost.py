@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import contextvars
-import html
-import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from aws_cost_ultra.core.filters import pre_credit_gross
 from aws_cost_ultra.core.service_groups import merge_ec2_service_groups, service_rows_from_groups
@@ -492,26 +490,6 @@ def api_trend_data(profile: str = Query("default"), period: str = Query("3m")):
         return JSONResponse(data)
     except Exception as exc:
         return JSONResponse({"error": friendly_error(exc), "labels": [], "values": []})
-
-
-@router.get("/trend-chart", response_class=HTMLResponse)
-def api_trend_chart(profile: str = Query("default"), period: str = Query("3m")):
-    # Validate period against the allow-list; profile is neutralised by urlencode.
-    period = _safe_period(period, default="3m")
-    qs = urllib.parse.urlencode({"profile": profile, "period": period})
-    data_url = f"/api/cost/trend/data?{qs}"
-    # Emit the URL into a data-* attribute (HTML-escaped) instead of
-    # interpolating untrusted input into the inline <script> body.
-    attr = html.escape(data_url, quote=True)
-    markup = (
-        f'<canvas id="trend-chart" data-url="{attr}" '
-        f'style="height:220px;display:block;width:100%"></canvas>'
-        f"<script>(function(){{var el=document.getElementById('trend-chart');"
-        f"fetch(el.dataset.url).then(r=>r.json()).then(d=>{{"
-        f"if(d.labels&&d.values)buildTrendChart('trend-chart',d.labels,d.values);"
-        f"}}).catch(()=>{{}});}})();</script>"
-    )
-    return HTMLResponse(markup)
 
 
 @router.get("/trend-table/data")

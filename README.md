@@ -15,7 +15,7 @@ The AWS Billing console shows usage types (`t4g.small · 500 hrs`) without resou
 
 ```bash
 git clone <repo-url>
-cd aws-cost-dashboard
+cd aws-cost-ultra
 ./run.sh          # Windows: run.bat
 ```
 
