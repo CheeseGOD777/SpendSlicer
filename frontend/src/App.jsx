@@ -124,7 +124,7 @@ function Topbar({ period, setPeriod, profile, setProfile, context }) {
         <span className="meta-text">{context?.cost_basis_label || "Pre-credit"}</span>
       </div>
       <div className="topbar-controls">
-        <select className="btn-ctl is-mono" value={period} onChange={(e) => setPeriod(e.target.value)}>
+        <select className="btn-ctl is-mono" aria-label="Period" value={period} onChange={(e) => setPeriod(e.target.value)}>
           {(() => {
             const periods = context?.periods || [];
             // When entries carry a `group` (Ranges / Months), render grouped
@@ -148,7 +148,7 @@ function Topbar({ period, setPeriod, profile, setProfile, context }) {
             ));
           })()}
         </select>
-        <select className="btn-ctl" value={profile} onChange={(e) => setProfile(e.target.value)}>
+        <select className="btn-ctl" aria-label="AWS profile" value={profile} onChange={(e) => setProfile(e.target.value)}>
           {context?.profile_choices?.map((p) => <option key={p.profile} value={p.profile}>{p.label}</option>)}
         </select>
       </div>

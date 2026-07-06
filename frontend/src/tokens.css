@@ -430,7 +430,10 @@ body::before {
   transition: border-color 140ms ease, background 140ms ease;
 }
 .btn-ctl:hover { border-color: var(--line-3); background: var(--page-2); }
-.btn-ctl:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.btn-ctl:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .btn-ctl.is-mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: -0.01em; }
 
 /* ── Page header ──────────────────────────────────────────────────────── */
@@ -1168,5 +1171,13 @@ tr.svc-row:hover .svc-caret { color: var(--ink); }
   font-family: var(--font-mono);
   cursor: pointer;
   padding: 2px 0;
+}
+
+/* Below the desktop breakpoint, let wide tables scroll inside their card
+   instead of forcing horizontal page scroll. */
+.tbl-wrap { overflow-x: auto; }
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .side { display: none; }
 }
 .comp-ut-more:hover { text-decoration: underline; }
