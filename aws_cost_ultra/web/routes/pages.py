@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from aws_cost_ultra.web.context import base_ctx
-from aws_cost_ultra.web.render import render
 
 router = APIRouter()
 _FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
@@ -17,50 +16,6 @@ _FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 @router.get("/", response_class=HTMLResponse)
 def root_redirect():
     return RedirectResponse(url="/app", status_code=307)
-
-
-@router.get("/legacy", response_class=HTMLResponse)
-def dashboard(request: Request, profile: str = Query("default"), period: str = Query("mtd")):
-    return render(request, "dashboard.html", base_ctx(profile, period, "dashboard"))
-
-
-@router.get("/services", response_class=HTMLResponse)
-def services_page(request: Request, profile: str = Query("default"), period: str = Query("mtd")):
-    return render(request, "services.html", base_ctx(profile, period, "services"))
-
-
-@router.get("/audit", response_class=HTMLResponse)
-def audit_page(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-    region: str = Query("all"),
-):
-    ctx = base_ctx(profile, period, "audit")
-    ctx["region"] = region
-    return render(request, "audit.html", ctx)
-
-
-@router.get("/trends", response_class=HTMLResponse)
-def trends_page(request: Request, profile: str = Query("default"), period: str = Query("3m")):
-    return render(request, "trends.html", base_ctx(profile, period, "trends"))
-
-
-@router.get("/resources", response_class=HTMLResponse)
-def resources_page(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-    region: str = Query("all"),
-):
-    ctx = base_ctx(profile, period, "resources")
-    ctx["region"] = region
-    return render(request, "resources.html", ctx)
-
-
-@router.get("/export", response_class=HTMLResponse)
-def export_page(request: Request, profile: str = Query("default"), period: str = Query("mtd")):
-    return render(request, "export.html", base_ctx(profile, period, "export"))
 
 
 @router.get("/api/ui/context")

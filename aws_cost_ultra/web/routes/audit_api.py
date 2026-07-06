@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
 from aws_cost_ultra.audit.runner import run_audit
 from aws_cost_ultra.aws.session import load_profile_bundle
 from aws_cost_ultra.resources.runner import ALL_REGIONS
 from aws_cost_ultra.web.context import friendly_error
-from aws_cost_ultra.web.deps import cache_get, cache_get_swr, cache_set, get_session, schedule_refresh
-from aws_cost_ultra.web.render import render
+from aws_cost_ultra.web.deps import cache_get_swr, cache_set, get_session, schedule_refresh
 
 log = logging.getLogger(__name__)
 
@@ -69,26 +68,6 @@ def build_audit_ctx(profile: str, region: str, include_snapshots: int) -> dict:
     except Exception as exc:
         ctx["error"] = friendly_error(exc)
     return ctx
-
-
-@router.get("/summary", response_class=HTMLResponse)
-def api_audit_summary(
-    request: Request,
-    profile: str = Query("default"),
-    region: str = Query(ALL_REGIONS),
-    include_snapshots: int = Query(0),
-):
-    ckey = f"audit:{profile}:{_safe_region(region)}:{include_snapshots}"
-    cached, should_refresh = cache_get_swr(ckey)
-    if cached is None:
-        cached = build_audit_ctx(profile, region, include_snapshots)
-        cache_set(ckey, cached)
-    elif should_refresh:
-        schedule_refresh(
-            ckey, lambda: build_audit_ctx(profile, region, include_snapshots),
-            heavy=True,
-        )
-    return render(request, "partials/audit_findings.html", cached)
 
 
 @router.get("/summary/data")

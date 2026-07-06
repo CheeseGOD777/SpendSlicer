@@ -72,7 +72,7 @@ where = ["."]
 include = ["aws_cost_ultra*"]
 
 [tool.setuptools.package-data]
-aws_cost_ultra = ["web/templates/*.html", "web/static/**/*"]
+aws_cost_ultra = []
 
 [tool.ruff]
 line-length = 100

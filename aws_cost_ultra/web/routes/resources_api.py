@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
 from aws_cost_ultra.core.filters import pre_credit_gross
 from aws_cost_ultra.resources import enumerate_all
@@ -22,7 +22,6 @@ from aws_cost_ultra.web.deps import (
     period_to_window,
     schedule_refresh,
 )
-from aws_cost_ultra.web.render import render
 
 router = APIRouter(prefix="/api/resources")
 
@@ -174,35 +173,6 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
     return ctx
 
 
-@router.get("", response_class=HTMLResponse)
-def api_resources(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-    region: str = Query(ALL_REGIONS),
-    service: str = Query(""),
-    limit: int = Query(0),
-):
-    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
-    cached, should_refresh = cache_get_swr(ckey)
-    if cached is None:
-        cached = build_resources_ctx(profile, period, region)
-        cache_set(ckey, cached)
-    elif should_refresh:
-        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
-
-    ctx = dict(cached)
-    ctx["service"] = service
-    rows = list(ctx.get("rows", []))
-    if service:
-        rows = [r for r in rows if r.get("service") == service]
-    total_count = len(rows)
-    rows = _apply_row_cap(rows, limit)
-    ctx["total_count"] = total_count
-    ctx["rows"] = rows
-    return render(request, "partials/resource_table.html", ctx)
-
-
 @router.get("/data")
 def api_resources_data(
     profile: str = Query("default"),
@@ -231,20 +201,6 @@ def api_resources_data(
     ctx["total_count"] = total_count
     ctx["rows"] = rows
     return JSONResponse(ctx)
-
-
-@router.get("/top", response_class=HTMLResponse)
-def api_resources_top(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-    region: str = Query(ALL_REGIONS),
-    limit: int = Query(10),
-):
-    """Dashboard widget — top N resources by CE-backed cost."""
-    return api_resources(
-        request, profile=profile, period=period, region=region, service="", limit=limit,
-    )
 
 
 @router.get("/top/data")
@@ -282,27 +238,6 @@ def api_resources_top_data(
     ctx["rows"] = rows
     ctx["warming"] = False
     return JSONResponse(ctx)
-
-
-@router.get("/services", response_class=HTMLResponse)
-def api_resources_services(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-    region: str = Query(ALL_REGIONS),
-    active_service: str = Query(""),
-):
-    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
-    cached = cache_get(ckey)
-    services_summary = (cached or {}).get("services_summary", []) if cached else []
-    ctx = {
-        "services_summary": services_summary,
-        "active_service": active_service,
-        "profile": profile,
-        "period": period,
-        "region": region,
-    }
-    return render(request, "partials/resource_tabs.html", ctx)
 
 
 @router.get("/services/data")

@@ -12,8 +12,8 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import APIRouter, Query
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from aws_cost_ultra.core.types import Granularity
@@ -238,29 +238,6 @@ def api_export_download(
         )
     except Exception as exc:
         return JSONResponse({"success": False, "error": friendly_error(exc)}, status_code=500)
-
-
-@router.get("/budgets", response_class=HTMLResponse)
-def api_budgets(request: Request, profile: str = Query("default")):
-    from aws_cost_ultra.web.deps import cache_get, cache_set
-    from aws_cost_ultra.web.render import render
-
-    ckey = f"budgets:{profile}"
-    cached = cache_get(ckey)
-    if cached:
-        return render(request, "partials/budget_alerts.html", cached)
-
-    ctx: dict = {"error": None, "findings": []}
-    try:
-        session = get_session(profile)
-        from aws_cost_ultra.audit.budgets import get_budget_findings
-        findings = get_budget_findings(session)
-        ctx["findings"] = [f.to_dict() for f in findings]
-    except Exception as exc:
-        ctx["error"] = friendly_error(exc)
-
-    cache_set(ckey, ctx)
-    return render(request, "partials/budget_alerts.html", ctx)
 
 
 @router.get("/budgets/data")

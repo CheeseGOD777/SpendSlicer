@@ -1,16 +1,15 @@
-"""Cost Explorer API routes (HTMX + JSON)."""
+"""Cost Explorer API routes (JSON)."""
 
 from __future__ import annotations
 
 import contextvars
 import html
-import json
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from aws_cost_ultra.core.filters import pre_credit_gross
@@ -32,8 +31,6 @@ from aws_cost_ultra.web.deps import (
     is_valid_period,
     period_to_window,
 )
-from aws_cost_ultra.web.render import render
-
 router = APIRouter(prefix="/api/cost")
 
 # FINDINGS 47/50: one shared, long-lived pool for the per-request fan-out
@@ -85,23 +82,6 @@ def _cache_ctx(ckey: str, ctx: dict) -> None:
     transiently and should be retried rather than frozen for the whole TTL."""
     if ctx.get("error") is None and not ctx.pop("_no_cache", False):
         cache_set(ckey, ctx)
-
-
-def _json_for_script(value) -> str:
-    """json.dumps escaped for safe embedding inside an inline <script> body.
-
-    json.dumps does NOT escape ``</script>``, ``<``, ``>``, ``&`` or the
-    JS line-terminators U+2028/U+2029, so a string value reaching here
-    could break out of the script context. Escape them defensively.
-    """
-    s = json.dumps(value)
-    return (
-        s.replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-        .replace(" ", "\\u2028")
-        .replace(" ", "\\u2029")
-    )
 
 
 def _trend_granularity_for_period(period: str) -> Granularity:
@@ -328,23 +308,6 @@ def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
     return ctx
 
 
-@router.get("/summary", response_class=HTMLResponse)
-def api_cost_summary(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-):
-    period = _safe_period(period)
-    ckey = f"summary:{_account_tag(profile)}:{profile}:{period}"
-    cached = cache_get(ckey)
-    if cached:
-        return render(request, "partials/cost_cards.html", cached)
-
-    ctx = _build_summary_ctx(profile, period)
-    _cache_ctx(ckey, ctx)
-    return render(request, "partials/cost_cards.html", ctx)
-
-
 @router.get("/summary/data")
 def api_cost_summary_data(
     profile: str = Query("default"),
@@ -358,39 +321,6 @@ def api_cost_summary_data(
     ctx = _build_summary_ctx(profile, period)
     _cache_ctx(ckey, ctx)
     return JSONResponse(ctx)
-
-
-@router.get("/services", response_class=HTMLResponse)
-def api_cost_services(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("mtd"),
-    limit: int = Query(0),
-    chart: int = Query(0),
-):
-    period = _safe_period(period)
-    ckey = f"services:{_account_tag(profile)}:{profile}:{period}:{limit}"
-    cached = cache_get(ckey)
-
-    # The chart only needs the top-10 services, which the cached ctx already
-    # has — so serve it from cache when present instead of recomputing both CE
-    # matrices (+ STS) on every chart render. Only build (and cache) on a miss.
-    ctx = cached
-    if ctx is None:
-        ctx = _build_services_ctx(profile, period, limit)
-        _cache_ctx(ckey, ctx)
-
-    if chart:
-        labels = [s["name"][:24] for s in ctx.get("services", [])[:10]]
-        values = [s["cost"] for s in ctx.get("services", [])[:10]]
-        html = (
-            f'<canvas id="service-chart" style="height:400px;display:block;width:100%"></canvas>'
-            f"<script>buildServiceChart('service-chart',"
-            f"{_json_for_script(labels)},{_json_for_script(values)});</script>"
-        )
-        return HTMLResponse(html)
-
-    return render(request, "partials/service_table.html", ctx)
 
 
 @router.get("/services/data")
@@ -582,41 +512,6 @@ def api_trend_chart(profile: str = Query("default"), period: str = Query("3m")):
         f"}}).catch(()=>{{}});}})();</script>"
     )
     return HTMLResponse(markup)
-
-
-@router.get("/trend-table", response_class=HTMLResponse)
-def api_trend_table(
-    request: Request,
-    profile: str = Query("default"),
-    period: str = Query("3m"),
-):
-    period = _safe_period(period, default="3m")
-    gran = _trend_granularity_for_period(period)
-    ckey = f"trend_table_html:{_account_tag(profile)}:{profile}:{period}:{gran.value}"
-    cached = cache_get(ckey)
-    if cached:
-        return render(request, "partials/trend_table.html", cached)
-
-    ctx: dict = {
-        "error": None,
-        "points": [],
-        "max_cost": 0.0,
-        "cost_basis_label": "Pre-credit · excludes Credit/Refund · UTC",
-    }
-    try:
-        session = get_session(profile)
-        ce = get_ce_client(session)
-        window = period_to_window(period)
-        raw = ce.get_trend(window, granularity=gran, spec=pre_credit_gross())
-        period_fmt = (lambda p: p.period_start[:10]) if gran == Granularity.DAILY else (lambda p: p.period_start[:7])
-        points = [{"period": period_fmt(p), "cost": p.value.amount_usd} for p in reversed(raw)]
-        ctx["points"] = points
-        ctx["max_cost"] = max((p["cost"] for p in points), default=0.0)
-    except Exception as exc:
-        ctx["error"] = friendly_error(exc)
-    if ctx.get("error") is None:
-        cache_set(ckey, ctx)
-    return render(request, "partials/trend_table.html", ctx)
 
 
 @router.get("/trend-table/data")
