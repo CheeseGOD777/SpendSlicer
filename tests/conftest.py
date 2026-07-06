@@ -8,13 +8,13 @@ import pytest
 def cur_sample_parquet(tmp_path_factory):
     rows = [
         # date, account, service_code, service_name, resource_id, tags, usage_type, op, usage, unblended
-        ("2026-05-18", "012178638401", "AmazonEC2", "Amazon Elastic Compute Cloud",
+        ("2026-05-18", "123456789012", "AmazonEC2", "Amazon Elastic Compute Cloud",
          "i-aaa1", {"Name": "web-1", "Project": "influenzer"}, "BoxUsage:t4g.small", "RunInstances", 24.0, 1.50),
-        ("2026-05-19", "012178638401", "AmazonEC2", "Amazon Elastic Compute Cloud",
+        ("2026-05-19", "123456789012", "AmazonEC2", "Amazon Elastic Compute Cloud",
          "i-aaa1", {"Name": "web-1", "Project": "influenzer"}, "BoxUsage:t4g.small", "RunInstances", 24.0, 1.55),
-        ("2026-05-18", "012178638401", "AmazonS3", "Amazon Simple Storage Service",
+        ("2026-05-18", "123456789012", "AmazonS3", "Amazon Simple Storage Service",
          "my-app-assets", {"Name": "my-app-assets"}, "TimedStorage-ByteHrs", "StandardStorage", 1024.0, 0.20),
-        ("2026-05-19", "012178638401", "AmazonS3", "Amazon Simple Storage Service",
+        ("2026-05-19", "123456789012", "AmazonS3", "Amazon Simple Storage Service",
          "my-app-assets", {"Name": "my-app-assets"}, "TimedStorage-ByteHrs", "StandardStorage", 1024.0, 0.22),
     ]
     columns = {
