@@ -756,13 +756,42 @@ function ExportPage({ profile, period }) {
   );
 }
 
+const readUrlState = () => {
+  const q = new URLSearchParams(window.location.search);
+  return { page: q.get("page"), profile: q.get("profile"), period: q.get("period") };
+};
+
 export default function App() {
-  const [page, setPage] = useState("dashboard");
-  const [profile, setProfile] = useState(() => localStorage.getItem("acu:profile") || "default");
-  const [period, setPeriod] = useState(() => localStorage.getItem("acu:period") || "mtd");
+  const urlInit = readUrlState();
+  const [page, setPage] = useState(urlInit.page && TITLES[urlInit.page] ? urlInit.page : "dashboard");
+  const [profile, setProfile] = useState(() => urlInit.profile || localStorage.getItem("acu:profile") || "default");
+  const [period, setPeriod] = useState(() => urlInit.period || localStorage.getItem("acu:period") || "mtd");
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => { localStorage.setItem("acu:profile", profile); }, [profile]);
   useEffect(() => { localStorage.setItem("acu:period", period); }, [period]);
+
+  // Keep the URL shareable: push state changes into query params, and follow
+  // browser back/forward. Uses replaceState for profile/period tweaks and
+  // pushState for page changes so Back navigates pages, not every dropdown touch.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const prevPage = q.get("page");
+    q.set("page", page); q.set("period", period); q.set("profile", profile);
+    const url = `${window.location.pathname}?${q.toString()}`;
+    if (prevPage !== null && prevPage !== page) window.history.pushState({}, "", url);
+    else window.history.replaceState({}, "", url);
+  }, [page, period, profile]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const s = readUrlState();
+      if (s.page && TITLES[s.page]) setPage(s.page);
+      if (s.period) setPeriod(s.period);
+      if (s.profile) setProfile(s.profile);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const contextState = useAsyncData((signal) => api.context(profile, period, { signal }), [profile, period]);
 
   useEffect(() => {
