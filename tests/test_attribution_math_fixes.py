@@ -193,3 +193,67 @@ def test_report_dict_has_real_counts_not_caps():
     # …but the KPI counts reflect reality.
     assert report["services_count"] == 30
     assert report["resources_count"] == 80
+
+
+# ---------------------------------------------------------------------------
+# Remainder rows — when a service's attribution can't cover its CE total
+# (rescale clamp tripped, empty inventory, unpriced classes), the difference
+# must surface as a labelled remainder row, not vanish (EC2 got this fix
+# first; generalize to every enumerated pool).
+# ---------------------------------------------------------------------------
+
+def _remainder_rows(other_rows, ce_name):
+    return [r for r in other_rows if r.resource_id == f"ce-remainder:{ce_name}"]
+
+
+def test_rds_rescale_clamp_skip_emits_remainder_row():
+    from aws_cost_ultra.resources import runner as R
+
+    # A db.r6g.large priced $0 by the fallback table: raw sum $15 vs CE $170
+    # -> factor 11.3 > 5.0 -> rescale skipped. The missing $155 must appear.
+    buckets = {"RDS": [_row("RDS", "db-small", 15.0)]}
+    totals = {"Amazon Relational Database Service": 170.0}
+    other_rows = R._reconcile_pools(buckets, totals, failed_services=set(),
+                                    want=None, display_region="all")
+    rem = _remainder_rows(other_rows, "Amazon Relational Database Service")
+    assert len(rem) == 1
+    assert round(rem[0].cost_usd, 2) == 155.0
+    assert rem[0].attributes.get("aggregate") is True
+
+
+def test_empty_inventory_emits_full_total_remainder():
+    from aws_cost_ultra.resources import runner as R
+
+    # Every DB deleted since the closed month: no rows at all -> the whole
+    # CE total used to disappear from the Resources view.
+    other_rows = R._reconcile_pools({}, {"Amazon Elastic Load Balancing": 17.44},
+                                    failed_services=set(), want=None,
+                                    display_region="all")
+    rem = _remainder_rows(other_rows, "Amazon Elastic Load Balancing")
+    assert len(rem) == 1
+    assert round(rem[0].cost_usd, 2) == 17.44
+
+
+def test_successful_rescale_emits_no_remainder():
+    from aws_cost_ultra.resources import runner as R
+
+    buckets = {"EBS": [_row("EBS", "vol-1", 4.0), _row("EBS", "vol-2", 4.0)]}
+    totals = {"EC2 - Other": 12.0}  # factor 1.5, in band -> rescale runs
+    other_rows = R._reconcile_pools(buckets, totals, failed_services=set(),
+                                    want=None, display_region="all")
+    assert round(sum(r.cost_usd for r in buckets["EBS"]), 2) == 12.0
+    assert not _remainder_rows(other_rows, "EC2 - Other")
+
+
+def test_ec2_other_pool_gap_surfaces_as_remainder():
+    from aws_cost_ultra.resources import runner as R
+
+    # NAT gateways ($43) share the pool with volumes ($8 raw): factor 6.4
+    # trips the clamp; volumes keep raw cost and the pool gap must surface.
+    buckets = {"EBS": [_row("EBS", "vol-1", 8.0)]}
+    totals = {"EC2 - Other": 51.0}
+    other_rows = R._reconcile_pools(buckets, totals, failed_services=set(),
+                                    want=None, display_region="all")
+    rem = _remainder_rows(other_rows, "EC2 - Other")
+    assert len(rem) == 1
+    assert round(rem[0].cost_usd, 2) == 43.0

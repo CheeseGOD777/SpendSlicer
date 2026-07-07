@@ -54,6 +54,19 @@ ENUMERATED_CE_SERVICES: set[str] = set(SERVICE_TO_CE.values())
 
 ALL_REGIONS = "all"
 
+# (bucket label, CE service name, display service for the remainder row).
+# EIP is absent on purpose: its rows are exact-rate and reconcile against the
+# VPC aggregate instead (see _reconcile_pools).
+_REMAINDER_POOLS: list[tuple[str, str, str]] = [
+    ("EC2", "Amazon Elastic Compute Cloud - Compute", "EC2"),
+    ("EBS", "EC2 - Other", "EC2-Other"),
+    ("RDS", "Amazon Relational Database Service", "RDS"),
+    ("ELB", "Amazon Elastic Load Balancing", "ELB"),
+    ("Lambda", "AWS Lambda", "Lambda"),
+    ("DynamoDB", "Amazon DynamoDB", "DynamoDB"),
+    ("S3", "Amazon Simple Storage Service", "S3"),
+]
+
 
 def _resolve_regions(session: boto3.Session, region: str) -> list[str]:
     if region == ALL_REGIONS:
@@ -218,6 +231,48 @@ def _reconcile_pools(
             hours=0.0,
             region=display_region,
             attributes=attrs,
+        ))
+
+    # Remainder rows: whenever an ENUMERATED service's attributed rows sum to
+    # less than its CE total (rescale clamp tripped, inventory deleted since a
+    # closed month, unpriced instance classes, partial scans), the difference
+    # used to vanish — the service is excluded from the aggregate loop above,
+    # so CE-vs-Resources drift silently swallowed real dollars. Surface the
+    # gap as one labelled row per pool, mirroring the EC2 unmatched-bucket fix.
+    for bucket_label, ce_name, display_service in _REMAINDER_POOLS:
+        ce_tot = ce_total_by_service.get(ce_name, 0.0)
+        if ce_tot <= 0.01:
+            continue
+        if want is not None and bucket_label not in want:
+            continue
+        attributed = sum(r.cost_usd for r in buckets.get(bucket_label, []))
+        remainder = ce_tot - attributed
+        if remainder <= 0.01:
+            continue
+        note = (
+            "CE bills this much for the service in the window beyond what the "
+            "per-resource rows cover — commonly resources deleted/replaced "
+            "after the period, instance classes without a known rate, or a "
+            "pool shared with non-enumerable charges (NAT, snapshots, data "
+            "transfer for EC2 - Other)."
+        )
+        if bucket_label in failed_services:
+            note += " This service's scan also failed partway, so rows are partial."
+        other_rows.append(AttributedResource(
+            service=display_service,
+            resource_id=f"ce-remainder:{ce_name}",
+            name=f"{ce_name} — unattributed remainder",
+            resource_type="service remainder",
+            state="unattributed",
+            cost_usd=remainder,
+            hours=0.0,
+            region=display_region,
+            attributes={
+                "aggregate": True,
+                "ce_service_name": ce_name,
+                "attributed_usd": round(attributed, 4),
+                "note": note,
+            },
         ))
     return other_rows
 
