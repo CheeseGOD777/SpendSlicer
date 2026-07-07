@@ -139,12 +139,75 @@ def _rescale_rows(
             pass
 
 
+def _service_region_totals(
+    ce_client,
+    window_start,
+    window_end,
+    spec: CostFilterSpec,
+    service_names: list[str],
+) -> dict[tuple[str, str], float]:
+    """One CE call grouped by [SERVICE, REGION] for the given services.
+
+    Lambda/DynamoDB attribution splits a CE total across each region's own
+    resources; handing every region the ACCOUNT-WIDE total meant each region
+    ended up with exactly total/region_count regardless of real usage. This
+    region-scopes those totals the same way EC2's per-region queries do.
+    """
+    from aws_cost_ultra.core.filters import build_ce_filter
+
+    filt_parts = []
+    base_filter = build_ce_filter(spec)
+    if base_filter:
+        filt_parts.append(base_filter)
+    filt_parts.append({"Dimensions": {"Key": "SERVICE", "Values": service_names}})
+    combined = {"And": filt_parts} if len(filt_parts) > 1 else filt_parts[0]
+
+    out: dict[tuple[str, str], float] = {}
+    token = None
+    while True:
+        kwargs = {
+            "TimePeriod": {
+                "Start": window_start.strftime("%Y-%m-%d"),
+                "End": window_end.strftime("%Y-%m-%d"),
+            },
+            "Granularity": "MONTHLY",
+            "Metrics": ["UnblendedCost"],
+            "GroupBy": [
+                {"Type": "DIMENSION", "Key": "SERVICE"},
+                {"Type": "DIMENSION", "Key": "REGION"},
+            ],
+            "Filter": combined,
+        }
+        if token:
+            kwargs["NextPageToken"] = token
+        resp = ce_client.get_cost_and_usage(**kwargs)
+        try:
+            from aws_cost_ultra.web.middleware import get_current_counter
+            _results = resp.get("ResultsByTime", [])
+            get_current_counter().add(
+                pages=1,
+                records=sum(len(p.get("Groups", []) or []) for p in _results),
+            )
+        except Exception:
+            pass
+        for period in resp.get("ResultsByTime", []):
+            for g in period.get("Groups", []):
+                svc, reg = g["Keys"][0], g["Keys"][1]
+                amount = float(g["Metrics"]["UnblendedCost"]["Amount"])
+                out[(svc, reg)] = out.get((svc, reg), 0.0) + amount
+        token = resp.get("NextPageToken")
+        if not token:
+            break
+    return out
+
+
 def _reconcile_pools(
     buckets: dict[str, list[AttributedResource]],
     ce_total_by_service: dict[str, float],
     failed_services: set[str],
     want: Optional[set[str]],
     display_region: str,
+    lambda_ddb_region_scoped: bool = False,
 ) -> list[AttributedResource]:
     """Post-fan-out reconciliation: pool rescales + CE service aggregate rows.
 
@@ -183,7 +246,10 @@ def _reconcile_pools(
     # [0.2, 5.0] (which would otherwise SKIP the correction past 5 regions and
     # leave the inflation in place). Skip when partial (FINDING 24) — scaling
     # incomplete rows up would misattribute the missing regions' cost.
-    for label in ("Lambda", "DynamoDB"):
+    # When the totals were already REGION-scoped (``lambda_ddb_region_scoped``),
+    # each region split its own bill and the combined sum is already right —
+    # renormalizing here would smear it back to total/region_count.
+    for label in () if lambda_ddb_region_scoped else ("Lambda", "DynamoDB"):
         rows = buckets.get(label, [])
         ce_tot = ce_total_by_service.get(SERVICE_TO_CE.get(label, ""), 0.0)
         if not rows or ce_tot <= 0 or label in failed_services:
@@ -424,6 +490,33 @@ def enumerate_all(
         ts = frozen_by_region[reg]
         return lambda: attribute_ebs(ts, ws, we, reg, _names_for(reg))
 
+    # Region-scope the Lambda/DynamoDB totals with one extra CE call so each
+    # region splits ITS OWN bill (handing every region the account-wide total
+    # made each region show exactly total/region_count regardless of usage).
+    # Falls back to the account-wide totals + post-fan-out normalization when
+    # the call fails or only one region is scanned (already correctly scoped).
+    lambda_ddb_regional: dict[tuple[str, str], float] = {}
+    if (want_it("Lambda") or want_it("DynamoDB")) and len(regions) > 1:
+        try:
+            lambda_ddb_regional = _service_region_totals(
+                ce_raw, ws, we, totals_spec, ["AWS Lambda", "Amazon DynamoDB"],
+            )
+        except Exception as exc:
+            log.warning(
+                "SERVICE x REGION totals for Lambda/DynamoDB failed (%s); "
+                "falling back to account-wide totals + normalization",
+                type(exc).__name__,
+            )
+            lambda_ddb_regional = {}
+    region_scoped = bool(lambda_ddb_regional)
+
+    def _regional_total(ce_name: str, reg: str, label: str) -> float:
+        if lambda_ddb_regional:
+            return lambda_ddb_regional.get((ce_name, reg), 0.0)
+        # Fallback: account-wide total (single region, or the regional CE
+        # call failed) — the post-fan-out normalization reconciles the sum.
+        return ce_total(label)
+
     for reg in regions:
         if want_it("RDS"):
             work.append(("RDS", _mk(attribute_rds, reg)))
@@ -432,9 +525,13 @@ def enumerate_all(
         if want_it("ELB"):
             work.append(("ELB", _mk(attribute_elb, reg)))
         if want_it("Lambda"):
-            work.append(("Lambda", _mk(attribute_lambda, reg, ce_total("Lambda"))))
+            work.append(("Lambda", _mk(
+                attribute_lambda, reg, _regional_total("AWS Lambda", reg, "Lambda"),
+            )))
         if want_it("DynamoDB"):
-            work.append(("DynamoDB", _mk(attribute_dynamodb, reg, ce_total("DynamoDB"))))
+            work.append(("DynamoDB", _mk(
+                attribute_dynamodb, reg, _regional_total("Amazon DynamoDB", reg, "DynamoDB"),
+            )))
         if want_it("EBS"):
             work.append(("EBS", _mk_ebs(reg)))
 
@@ -488,6 +585,7 @@ def enumerate_all(
 
     other_rows = _reconcile_pools(
         buckets, ce_total_by_service, failed_services, want, display_region,
+        lambda_ddb_region_scoped=region_scoped,
     )
 
     flat: list[AttributedResource] = []

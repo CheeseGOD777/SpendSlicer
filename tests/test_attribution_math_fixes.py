@@ -257,3 +257,71 @@ def test_ec2_other_pool_gap_surfaces_as_remainder():
     rem = _remainder_rows(other_rows, "EC2 - Other")
     assert len(rem) == 1
     assert round(rem[0].cost_usd, 2) == 43.0
+
+
+# ---------------------------------------------------------------------------
+# Lambda/DynamoDB cross-region split — each region must split ITS OWN CE
+# total, not an equal 1/N share of the account-wide bill.
+# ---------------------------------------------------------------------------
+
+class _FakeCeRegional:
+    """CE response grouped by [SERVICE, REGION]."""
+
+    def get_cost_and_usage(self, **kwargs):
+        return {
+            "ResultsByTime": [{
+                "Groups": [
+                    {"Keys": ["AWS Lambda", "us-east-1"],
+                     "Metrics": {"UnblendedCost": {"Amount": "99.999"}}},
+                    {"Keys": ["AWS Lambda", "ap-south-1"],
+                     "Metrics": {"UnblendedCost": {"Amount": "0.001"}}},
+                    {"Keys": ["Amazon DynamoDB", "us-east-1"],
+                     "Metrics": {"UnblendedCost": {"Amount": "40.0"}}},
+                ],
+            }],
+        }
+
+
+def test_service_region_totals_maps_service_region_pairs():
+    from datetime import datetime
+    from aws_cost_ultra.resources import runner as R
+    from aws_cost_ultra.core.filters import pre_credit_gross
+
+    totals = R._service_region_totals(
+        _FakeCeRegional(), datetime(2026, 6, 1), datetime(2026, 7, 1),
+        pre_credit_gross(), ["AWS Lambda", "Amazon DynamoDB"],
+    )
+    assert totals[("AWS Lambda", "us-east-1")] == 99.999
+    assert totals[("AWS Lambda", "ap-south-1")] == 0.001
+    assert totals[("Amazon DynamoDB", "us-east-1")] == 40.0
+
+
+def test_region_scoped_lambda_rows_are_not_renormalized():
+    from aws_cost_ultra.resources import runner as R
+
+    # Region-scoped totals: us-east-1 carries $99.999, ap-south-1 $0.001.
+    buckets = {"Lambda": [
+        _row("Lambda", "fn-use1", 99.999),
+        _row("Lambda", "fn-aps3", 0.001),
+    ]}
+    totals = {"AWS Lambda": 100.0}
+    R._reconcile_pools(buckets, totals, failed_services=set(), want=None,
+                       display_region="all", lambda_ddb_region_scoped=True)
+    # The old account-wide normalization would have forced each region to
+    # exactly half: fn-aps3 at $50. Region-scoped rows must stay as-is.
+    by_id = {r.resource_id: r.cost_usd for r in buckets["Lambda"]}
+    assert round(by_id["fn-aps3"], 3) == 0.001
+    assert round(by_id["fn-use1"], 3) == 99.999
+
+
+def test_unscoped_lambda_rows_still_normalize_to_ce_total():
+    from aws_cost_ultra.resources import runner as R
+
+    # Fallback path (regional CE call failed): two regions each split the
+    # full $100 -> raw sum $200 -> normalize back to $100.
+    buckets = {"Lambda": [_row("Lambda", "fn-a", 100.0),
+                          _row("Lambda", "fn-b", 100.0)]}
+    totals = {"AWS Lambda": 100.0}
+    R._reconcile_pools(buckets, totals, failed_services=set(), want=None,
+                       display_region="all", lambda_ddb_region_scoped=False)
+    assert round(sum(r.cost_usd for r in buckets["Lambda"]), 2) == 100.0
