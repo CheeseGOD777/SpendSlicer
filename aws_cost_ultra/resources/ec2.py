@@ -133,6 +133,10 @@ def _attribute_from_usage_type(
     end_s = window_end.strftime("%Y-%m-%d")
 
     ce_by_key: dict = defaultdict(lambda: {"cost": 0.0, "hours": 0.0})
+    # Usage types under EC2-Compute that aren't per-instance box usage
+    # (CPUCredits, data transfer, …) — surfaced as one aggregate row instead
+    # of silently widening drift.
+    non_instance_cost = 0.0
     token = None
     while True:
         kwargs = {
@@ -169,6 +173,8 @@ def _attribute_from_usage_type(
                 elif rest.startswith("HeavyUsage:"):
                     key = ("reserved", rest[len("HeavyUsage:"):])
                 else:
+                    if cost > 0:
+                        non_instance_cost += cost
                     continue
                 if cost > 0:
                     ce_by_key[key]["cost"] += cost
@@ -177,7 +183,7 @@ def _attribute_from_usage_type(
         if not token:
             break
 
-    if not ce_by_key:
+    if not ce_by_key and non_instance_cost <= 0.001:
         return []
 
     # FINDING 21: reuse a shared per-region scan when provided; otherwise do our own.
@@ -219,8 +225,10 @@ def _attribute_from_usage_type(
         )
         insts = inst_by_key.get((lifecycle, itype), [])
         total_running_hours = sum(i["hours"] for i in insts)
+        attributed_any = False
 
         if insts and total_running_hours > 0:
+            attributed_any = True
             for inst in insts:
                 if inst["hours"] <= 0:
                     continue
@@ -251,6 +259,7 @@ def _attribute_from_usage_type(
             # stopped finding; leave that CE cost as unattributed drift.
             stopped_insts = [i for i in insts if i["state"] == "stopped"]
             if stopped_insts:
+                attributed_any = True
                 per = ce_cost / len(stopped_insts)
                 for inst in stopped_insts:
                     rows.append(AttributedResource(
@@ -267,7 +276,47 @@ def _attribute_from_usage_type(
                         attributes={"az": inst["az"], "lifecycle": lifecycle,
                                     "attribution_source": _FALLBACK_SOURCE},
                     ))
-        # No matching live/stopped instances — leave cost in CE drift, no synthetic rows.
+        if not attributed_any:
+            # No live/stopped instance matches this CE bucket — the instances
+            # were terminated or replaced after the window (e.g. Elastic
+            # Beanstalk churn viewed on a closed month). Emit a labelled
+            # aggregate row so the spend stays visible in the Resources view
+            # instead of silently widening drift.
+            rows.append(AttributedResource(
+                service="EC2",
+                resource_id=f"ce-usage:{region}:{lifecycle}:{itype}",
+                name=f"{display_type} — terminated/replaced instances",
+                resource_type=display_type,
+                state="unmatched",
+                cost_usd=ce_cost,
+                hours=ce_data["hours"],
+                region=region,
+                attributes={
+                    "aggregate": True,
+                    "lifecycle": lifecycle,
+                    "attribution_source": _FALLBACK_SOURCE,
+                    "note": ("Cost Explorer bills this usage type in the window, "
+                             "but no current instance matches — the instances were "
+                             "likely terminated or replaced after the period."),
+                },
+            ))
+
+    if non_instance_cost > 0.001:
+        rows.append(AttributedResource(
+            service="EC2",
+            resource_id=f"ce-usage:{region}:non-instance",
+            name="EC2 — non-instance usage (CPU credits, data transfer, …)",
+            resource_type="usage aggregate",
+            state="active",
+            cost_usd=non_instance_cost,
+            hours=0.0,
+            region=region,
+            attributes={
+                "aggregate": True,
+                "attribution_source": _FALLBACK_SOURCE,
+                "note": "EC2-Compute usage types not tied to a single instance",
+            },
+        ))
 
     rows.sort(key=lambda r: r.cost_usd, reverse=True)
     return rows

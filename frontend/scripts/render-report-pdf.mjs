@@ -30,6 +30,14 @@ const budgets = report.budget_findings || [];
 const topServiceMax = Math.max(...topServices.map((s) => Number(s.cost_usd || 0)), 1);
 const topResourceMax = Math.max(...topResources.map((r) => Number(r.cost || 0)), 1);
 
+// Real account-wide counts from the backend; the capped lists are only for
+// table layout. Tiles must never present a list cap as a metric.
+const servicesCount = Number(report.services_count ?? topServices.length);
+const resourcesCount = Number(report.resources_count ?? topResources.length);
+const shownServices = topServices.slice(0, 15);
+const shownResources = topResources.slice(0, 25);
+const ofNote = (shown, total) => (total > shown ? ` (top ${shown} of ${total})` : "");
+
 const html = `<!doctype html>
 <html>
 <head>
@@ -68,17 +76,16 @@ const html = `<!doctype html>
 
   <div class="kpis">
     <div class="kpi"><div class="l">Total Cost</div><div class="v">${usd(report.total_cost_usd, 2)}</div></div>
-    <div class="kpi"><div class="l">Top Services</div><div class="v">${topServices.length}</div></div>
-    <div class="kpi"><div class="l">Top Resources</div><div class="v">${topResources.length}</div></div>
+    <div class="kpi"><div class="l">Services with Spend</div><div class="v">${servicesCount}</div></div>
+    <div class="kpi"><div class="l">Resources Attributed</div><div class="v">${resourcesCount}</div></div>
     <div class="kpi"><div class="l">Budgets Tracked</div><div class="v">${budgets.length}</div></div>
   </div>
 
-  <h2>Service Cost Breakdown</h2>
+  <h2>Service Cost Breakdown${esc(ofNote(shownServices.length, servicesCount))}</h2>
   <table>
     <thead><tr><th>Service</th><th class="num">Cost (USD)</th><th>Distribution</th></tr></thead>
     <tbody>
-      ${topServices
-        .slice(0, 15)
+      ${shownServices
         .map((s) => {
           const c = Number(s.cost_usd || 0);
           const w = (c / topServiceMax) * 100;
@@ -92,12 +99,11 @@ const html = `<!doctype html>
     </tbody>
   </table>
 
-  <h2>Top Resources</h2>
+  <h2>Top Resources${esc(ofNote(shownResources.length, resourcesCount))}</h2>
   <table>
     <thead><tr><th>Service</th><th>Resource</th><th>Type</th><th>State</th><th class="num">Cost (USD)</th><th>Distribution</th></tr></thead>
     <tbody>
-      ${topResources
-        .slice(0, 25)
+      ${shownResources
         .map((r) => {
           const c = Number(r.cost || 0);
           const w = (c / topResourceMax) * 100;

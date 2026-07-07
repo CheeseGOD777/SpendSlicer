@@ -126,6 +126,102 @@ def _rescale_rows(
             pass
 
 
+def _reconcile_pools(
+    buckets: dict[str, list[AttributedResource]],
+    ce_total_by_service: dict[str, float],
+    failed_services: set[str],
+    want: Optional[set[str]],
+    display_region: str,
+) -> list[AttributedResource]:
+    """Post-fan-out reconciliation: pool rescales + CE service aggregate rows.
+
+    EIP rows are deliberately NOT rescaled: since Feb 2024 every public IPv4
+    address bills at exactly $0.005/hr under "Amazon Virtual Private Cloud"
+    (PublicIPv4:InUseAddress / IdleAddress), so the raw priced cost is already
+    exact. Squashing them into the "EC2 - Other" pool (the pre-2024 model)
+    under-priced every address. To avoid double counting, the VPC aggregate
+    row is reduced by whatever the EIP rows already attribute.
+    """
+    # FINDING 18: EBS rescaled to the shared "EC2 - Other" CE pool, clamped.
+    _rescale_rows(
+        buckets.get("EBS", []), ce_total_by_service.get("EC2 - Other", 0.0),
+        "EBS", incomplete="EBS" in failed_services,
+    )
+
+    # FINDING 18: RDS / ELB rescaled to their own CE totals, clamped.
+    for label, ce_name in [
+        ("RDS", "Amazon Relational Database Service"),
+        ("ELB", "Amazon Elastic Load Balancing"),
+    ]:
+        _rescale_rows(
+            buckets.get(label, []), ce_total_by_service.get(ce_name, 0.0), label,
+            incomplete=label in failed_services,
+        )
+
+    # AUDIT (critical): Lambda and DynamoDB are attributed *per region*, but the
+    # CE service total handed to each region's work unit is account-wide (no
+    # REGION grouping/filter). Each region therefore splits the FULL total
+    # across only its own functions/tables, so the combined cross-region sum is
+    # roughly (region_count x true_total) — Lambda/DynamoDB cost inflates by the
+    # number of active regions. Unlike EC2 (per-region CE scoping) these have no
+    # such scoping, so reconcile the COMBINED rows back down to the single CE
+    # total here. A factor of ~1/region_count is expected and legitimate, so we
+    # normalise directly rather than via _rescale_rows' tiny-raw-sum clamp
+    # [0.2, 5.0] (which would otherwise SKIP the correction past 5 regions and
+    # leave the inflation in place). Skip when partial (FINDING 24) — scaling
+    # incomplete rows up would misattribute the missing regions' cost.
+    for label in ("Lambda", "DynamoDB"):
+        rows = buckets.get(label, [])
+        ce_tot = ce_total_by_service.get(SERVICE_TO_CE.get(label, ""), 0.0)
+        if not rows or ce_tot <= 0 or label in failed_services:
+            continue
+        raw_sum = sum(r.cost_usd for r in rows)
+        if raw_sum <= 0:
+            continue
+        factor = ce_tot / raw_sum
+        for r in rows:
+            r.cost_usd *= factor
+
+    eip_attributed = sum(r.cost_usd for r in buckets.get("EIP", []))
+
+    other_rows: list[AttributedResource] = []
+    for ce_name, total in ce_total_by_service.items():
+        if ce_name in ENUMERATED_CE_SERVICES:
+            continue
+        attrs = {
+            "aggregate": True,
+            "ce_service_name": ce_name,
+            "note": "CE total — per-resource breakdown not yet available",
+        }
+        if ce_name == "Amazon Virtual Private Cloud" and eip_attributed > 0:
+            # The per-address EIP/public-IP rows already carry this much of the
+            # VPC bill; only the remainder (NAT gateways, endpoints, …) stays
+            # in the aggregate.
+            total = total - eip_attributed
+            attrs["reduced_by_attributed_eip_usd"] = round(eip_attributed, 4)
+            attrs["note"] = (
+                "CE total minus the public-IPv4 cost shown as per-address "
+                "rows (NAT gateways, endpoints and other VPC charges remain)"
+            )
+        if total <= 0.001:
+            continue
+        label = _short_label(ce_name)
+        if want is not None and label not in want:
+            continue
+        other_rows.append(AttributedResource(
+            service=label,
+            resource_id=f"ce:{ce_name}",
+            name=ce_name,
+            resource_type="service aggregate",
+            state="active",
+            cost_usd=total,
+            hours=0.0,
+            region=display_region,
+            attributes=attrs,
+        ))
+    return other_rows
+
+
 def enumerate_all(
     session: boto3.Session,
     window: TimeWindow,
@@ -319,73 +415,25 @@ def enumerate_all(
                         label, type(exc).__name__, exc_info=True,
                     )
 
-    # FINDING 18: EBS+EIP rescaled to the shared "EC2 - Other" CE pool, clamped.
-    other_pool = ce_total_by_service.get("EC2 - Other", 0.0)
-    if other_pool > 0 and (buckets.get("EBS") or buckets.get("EIP")):
-        ebs_eip = buckets.get("EBS", []) + buckets.get("EIP", [])
-        _rescale_rows(
-            ebs_eip, other_pool, "EBS/EIP",
-            incomplete=bool({"EBS", "EIP"} & failed_services),
+    # Public IPv4 addresses auto-assigned to instances (not EIPs) bill at the
+    # same $0.005/hr under VPC but never appear in describe_addresses — add
+    # per-address rows from the instance scans we already have, excluding IPs
+    # an associated EIP row already covers.
+    if want_it("EIP") and "EIP" not in failed_services:
+        from .eip import auto_assigned_ip_rows
+        eip_ips = frozenset(
+            (r.attributes or {}).get("public_ip", "")
+            for r in buckets.get("EIP", [])
         )
+        for reg, insts in instances_by_region.items():
+            if insts:
+                buckets.setdefault("EIP", []).extend(
+                    auto_assigned_ip_rows(insts, reg, ws, we, exclude_ips=eip_ips)
+                )
 
-    # FINDING 18: RDS / ELB rescaled to their own CE totals, clamped.
-    for label, ce_name in [
-        ("RDS", "Amazon Relational Database Service"),
-        ("ELB", "Amazon Elastic Load Balancing"),
-    ]:
-        _rescale_rows(
-            buckets.get(label, []), ce_total_by_service.get(ce_name, 0.0), label,
-            incomplete=label in failed_services,
-        )
-
-    # AUDIT (critical): Lambda and DynamoDB are attributed *per region*, but the
-    # CE service total handed to each region's work unit is account-wide (no
-    # REGION grouping/filter). Each region therefore splits the FULL total
-    # across only its own functions/tables, so the combined cross-region sum is
-    # roughly (region_count x true_total) — Lambda/DynamoDB cost inflates by the
-    # number of active regions. Unlike EC2 (per-region CE scoping) these have no
-    # such scoping, so reconcile the COMBINED rows back down to the single CE
-    # total here. A factor of ~1/region_count is expected and legitimate, so we
-    # normalise directly rather than via _rescale_rows' tiny-raw-sum clamp
-    # [0.2, 5.0] (which would otherwise SKIP the correction past 5 regions and
-    # leave the inflation in place). Skip when partial (FINDING 24) — scaling
-    # incomplete rows up would misattribute the missing regions' cost.
-    for label in ("Lambda", "DynamoDB"):
-        rows = buckets.get(label, [])
-        ce_tot = ce_total_by_service.get(SERVICE_TO_CE.get(label, ""), 0.0)
-        if not rows or ce_tot <= 0 or label in failed_services:
-            continue
-        raw_sum = sum(r.cost_usd for r in rows)
-        if raw_sum <= 0:
-            continue
-        factor = ce_tot / raw_sum
-        for r in rows:
-            r.cost_usd *= factor
-
-    other_rows: list[AttributedResource] = []
-    for ce_name, total in ce_total_by_service.items():
-        if total <= 0.001:
-            continue
-        if ce_name in ENUMERATED_CE_SERVICES:
-            continue
-        label = _short_label(ce_name)
-        if want is not None and label not in want:
-            continue
-        other_rows.append(AttributedResource(
-            service=label,
-            resource_id=f"ce:{ce_name}",
-            name=ce_name,
-            resource_type="service aggregate",
-            state="active",
-            cost_usd=total,
-            hours=0.0,
-            region=display_region,
-            attributes={
-                "aggregate": True,
-                "ce_service_name": ce_name,
-                "note": "CE total — per-resource breakdown not yet available",
-            },
-        ))
+    other_rows = _reconcile_pools(
+        buckets, ce_total_by_service, failed_services, want, display_region,
+    )
 
     flat: list[AttributedResource] = []
     for svc_rows in buckets.values():

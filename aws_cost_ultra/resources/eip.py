@@ -9,7 +9,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from aws_cost_ultra.core import pricing
-from .base import AttributedResource, hours_between, tag_name, tags_to_dict
+from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
 
 # FINDING 24: adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
@@ -72,6 +72,55 @@ def attribute_eip(
                 "association_id": a.get("AssociationId"),
                 "rate_usd_hr": idle_rate,
                 "cost_basis": cost_basis,
+            },
+        ))
+    rows.sort(key=lambda r: r.cost_usd, reverse=True)
+    return rows
+
+
+def auto_assigned_ip_rows(
+    instances: list[dict],
+    region: str,
+    window_start: datetime,
+    window_end: datetime,
+    exclude_ips: frozenset = frozenset(),
+) -> list[AttributedResource]:
+    """Rows for instance auto-assigned public IPv4 addresses (not EIPs).
+
+    These bill at the same $0.005/hr under VPC ``PublicIPv4:InUseAddress``
+    since Feb 2024 but never appear in ``describe_addresses``, so without this
+    the VPC service total dwarfs the visible per-address rows (e.g. Elastic
+    Beanstalk instances all carry auto-assigned public IPs).
+
+    ``exclude_ips``: public IPs already covered by EIP rows (an associated
+    EIP shows up as the instance's PublicIpAddress too — don't double count).
+    """
+    rate = pricing.eip_idle_rate()
+    rows: list[AttributedResource] = []
+    for inst in instances:
+        ip = inst.get("PublicIpAddress") or ""
+        if not ip or ip in exclude_ips:
+            continue
+        if (inst.get("State") or {}).get("Name") != "running":
+            continue
+        eff_s, eff_e = clamp_window(inst.get("LaunchTime"), window_start, window_end)
+        hours = hours_between(eff_s, eff_e)
+        if hours <= 0:
+            continue
+        rows.append(AttributedResource(
+            service="EIP",
+            resource_id=f"public-ip:{ip}",
+            name=f"{ip} (auto-assigned)",
+            resource_type="public-ipv4 (auto-assigned)",
+            state="associated",
+            cost_usd=hours * rate,
+            hours=hours,
+            region=region,
+            attributes={
+                "public_ip": ip,
+                "attached_instance_id": inst.get("InstanceId"),
+                "rate_usd_hr": rate,
+                "cost_basis": "instance running hours @ public-IPv4 in-use rate",
             },
         ))
     rows.sort(key=lambda r: r.cost_usd, reverse=True)

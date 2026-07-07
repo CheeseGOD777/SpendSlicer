@@ -151,27 +151,51 @@ def _build_report(profile: str, period: str) -> tuple[dict, object]:
         filter_summary=spec.summary(),
     )
     services = merge_ec2_service_groups(m.to_grouped_cost_list(prov))
+    service_dicts = [
+        {"service": g.primary_key(), "cost_usd": g.value.amount_usd}
+        for g in services
+    ]
+    trend = [
+        {"period": p.period_start[:7], "cost_usd": round(p.value.amount_usd, 3)}
+        for p in trend_points
+    ]
+    report = _assemble_report(
+        profile=profile, period=period, total=m.total(),
+        services=service_dicts, raw_resources=raw_resources,
+        trend_points=trend, budget_findings=budget_findings,
+    )
+    return report, session
 
-    report = {
+
+def _assemble_report(
+    profile: str,
+    period: str,
+    total: float,
+    services: list[dict],
+    raw_resources: list[dict],
+    trend_points: list[dict],
+    budget_findings: list[dict],
+) -> dict:
+    """Shape the report payload. Tables are capped for readability, but the
+    KPI counts carry the REAL totals — a tile reading "Top Resources 50" that
+    was just the list cap told the reader nothing."""
+    return {
         "title": "Cloud Ledger Cost Report",
         "platform_name": "Cloud Ledger",
         "account": profile,
         "period": period,
         "generated_at": _dt.datetime.utcnow().isoformat() + "Z",
         "cost_basis": "Pre-credit gross (excludes Credit/Refund/Upfront)",
-        "total_cost_usd": m.total(),
-        "top_services": [
-            {"service": g.primary_key(), "cost_usd": g.value.amount_usd}
-            for g in services[:25]
-        ],
-        "top_resources": sorted(raw_resources, key=lambda r: r.get("cost", 0.0), reverse=True)[:50],
-        "trend_points": [
-            {"period": p.period_start[:7], "cost_usd": round(p.value.amount_usd, 3)}
-            for p in trend_points
-        ],
+        "total_cost_usd": total,
+        "services_count": len(services),
+        "resources_count": len(raw_resources),
+        "top_services": services[:25],
+        "top_resources": sorted(
+            raw_resources, key=lambda r: r.get("cost", 0.0), reverse=True,
+        )[:50],
+        "trend_points": trend_points,
         "budget_findings": budget_findings,
     }
-    return report, session
 
 
 @router.post("/export/run")
