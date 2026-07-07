@@ -168,6 +168,10 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         is_specific_month = bool(_MONTH_PERIOD_RE.match(period))
         fcast_window = None if is_specific_month else remainder_of_current_month()
         want_forecast = fcast_window is not None
+        # On the last day of the month there is no remainder to forecast; the
+        # "projected month close" is simply the MTD actual — still fetch the
+        # MTD matrix so the card doesn't go blank.
+        is_month_last_day = not is_specific_month and fcast_window is None
         mtd_window = window if period == "mtd" else current_month()
 
         src = get_cost_source(session)
@@ -193,7 +197,7 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
                 pool.submit(
                     contextvars.copy_context().run, src.get_matrix, profile, account_id, mtd_window, spec
                 )
-                if want_forecast and period != "mtd" else None
+                if (want_forecast or is_month_last_day) and period != "mtd" else None
             )
 
         m = f_matrix.result()
@@ -239,6 +243,10 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
             ctx["change_pct"] = max(-999.9, min(9999.9, raw))
         if forecast_cv:
             ctx["forecast"] = mtd_amount + forecast_cv.amount_usd
+            ctx["forecast_mtd_actual"] = mtd_amount
+        elif is_month_last_day:
+            # Nothing left to forecast — the month closes today at the actual.
+            ctx["forecast"] = mtd_amount
             ctx["forecast_mtd_actual"] = mtd_amount
         if services:
             ctx["top_service_name"] = services[0].primary_key()

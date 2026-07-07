@@ -59,11 +59,16 @@ def remainder_of_current_month() -> Optional[TimeWindow]:
     Returns ``None`` on the last day of the month — there is no remainder to
     forecast, so the caller should fall back to the actual MTD total alone.
     """
-    tomorrow = _utc_today_midnight() + timedelta(days=1)
-    if tomorrow.month == 12:
-        end = tomorrow.replace(year=tomorrow.year + 1, month=1, day=1)
+    today = _utc_today_midnight()
+    tomorrow = today + timedelta(days=1)
+    # Roll over based on TODAY's month. Basing it on tomorrow meant that on
+    # the last day of a month the window became the ENTIRE next month, and
+    # "projected month close" showed this month's actuals plus a full month
+    # of forecast (~2x reality).
+    if today.month == 12:
+        end = today.replace(year=today.year + 1, month=1, day=1)
     else:
-        end = tomorrow.replace(month=tomorrow.month + 1, day=1)
+        end = today.replace(month=today.month + 1, day=1)
     if tomorrow >= end:
         # Today is the last day of the month — nothing left to forecast.
         return None
