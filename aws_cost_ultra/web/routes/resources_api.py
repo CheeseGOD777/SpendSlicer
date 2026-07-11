@@ -150,7 +150,15 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
             totals_spec = _dc_replace(spec, region=region)
         ce_total_cv = ce.get_total_cost(window, spec=totals_spec)
         ctx["ce_total"] = ce_total_cv.amount_usd
-        ctx["unattributed"] = max(ctx["ce_total"] - ctx["total"], 0.0)
+        # Drift may legitimately go NEGATIVE (attributed > CE total, e.g. an
+        # attribution double count or a basis mismatch) — flooring at zero hid
+        # exactly the failures this reconciliation exists to expose.
+        ctx["unattributed"] = ctx["ce_total"] - ctx["total"]
+        if ctx["unattributed"] < -0.01:
+            ctx["warnings"].append(
+                "Attributed total exceeds the CE total — some cost may be "
+                "double-counted between per-resource rows and aggregates."
+            )
         ctx["unattributed_pct"] = (
             ctx["unattributed"] / ctx["ce_total"] * 100 if ctx["ce_total"] > 0 else 0.0
         )

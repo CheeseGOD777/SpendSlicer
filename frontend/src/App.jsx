@@ -457,7 +457,7 @@ function ServicesPage({ profile, period }) {
                       <td>{row.name}</td>
                       <td className="num">{usd(row.cost)}</td>
                       <td className="num">{Number(row.pct_of_total || 0).toFixed(1)}%</td>
-                      <td className="num">{pct(row.change_pct || 0)}</td>
+                      <td className="num">{row.change_pct == null ? "new" : pct(row.change_pct)}</td>
                     </tr>
                     {isOpen && (
                       <tr className="svc-row-detail">

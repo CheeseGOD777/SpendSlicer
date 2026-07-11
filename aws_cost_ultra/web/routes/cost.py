@@ -87,7 +87,10 @@ def _trend_granularity_for_period(period: str) -> Granularity:
     # window — which starts mid-month, so MONTHLY would mislabel its truncated
     # first/last buckets as full months — and a single specific calendar month.
     # Longer month-aligned windows (6m/12m) collapse to monthly bars.
-    if period in ("mtd", "30d", "3m", "last_month") or _MONTH_PERIOD_RE.match(period or ""):
+    # "90d"/"60d" share last_n_days windows with "3m" and need DAILY for the
+    # same reason — MONTHLY rendered their truncated edge buckets as
+    # full-month bars ("Apr $2,200" for 22 days of April).
+    if period in ("mtd", "30d", "60d", "90d", "3m", "last_month") or _MONTH_PERIOD_RE.match(period or ""):
         return Granularity.DAILY
     return Granularity.MONTHLY
 
