@@ -112,13 +112,37 @@ def run_scheduled_export(
 
 
 def _report_to_csv_rows(report: dict) -> list[dict]:
-    """Flatten the top-services section of a report for CSV output."""
+    """Flatten the top-services section of a report for CSV output.
+
+    ``top_services`` is capped (25); without the tail + TOTAL rows a
+    spreadsheet SUM over the CSV silently disagreed with the PDF/JSON total
+    from the same run.
+    """
     rows = []
-    for svc in report.get("top_services", []):
+    top = report.get("top_services", [])
+    for svc in top:
         rows.append({
             "account": report.get("account", ""),
             "period": report.get("period", ""),
             "service": svc.get("service", ""),
             "cost_usd": svc.get("cost_usd", 0),
+        })
+    total = report.get("total_cost_usd")
+    if total is not None:
+        top_sum = sum(float(s.get("cost_usd", 0) or 0) for s in top)
+        tail = total - top_sum
+        services_count = report.get("services_count", len(top))
+        if services_count > len(top) and tail > 0.005:
+            rows.append({
+                "account": report.get("account", ""),
+                "period": report.get("period", ""),
+                "service": f"(other {services_count - len(top)} services)",
+                "cost_usd": round(tail, 4),
+            })
+        rows.append({
+            "account": report.get("account", ""),
+            "period": report.get("period", ""),
+            "service": "TOTAL",
+            "cost_usd": total,
         })
     return rows

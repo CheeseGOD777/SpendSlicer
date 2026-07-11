@@ -251,7 +251,15 @@ def api_resources_top_data(
     if should_refresh:
         schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
 
-    rows = sorted(list(cached.get("rows", [])), key=lambda r: r.get("cost", 0.0), reverse=True)[:limit]
+    # "Top resources" means actionable per-resource rows — synthetic
+    # aggregates (long-tail rollup, service remainders, CE service totals)
+    # would otherwise crowd out (or outrank) every real resource.
+    _synthetic = ("aggregate:", "other:", "ce:", "ce-remainder:", "ce-usage:")
+    real_rows = [
+        r for r in cached.get("rows", [])
+        if not str(r.get("resource_id", "")).startswith(_synthetic)
+    ]
+    rows = sorted(real_rows, key=lambda r: r.get("cost", 0.0), reverse=True)[:limit]
     ctx = dict(cached)
     ctx["service"] = ""
     ctx["rows"] = rows

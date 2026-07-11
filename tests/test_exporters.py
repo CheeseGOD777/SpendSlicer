@@ -157,10 +157,13 @@ def test_run_scheduled_export_both_formats():
 
 def test_report_to_csv_rows_flattens_services():
     rows = _report_to_csv_rows(_REPORT)
-    assert len(rows) == 3
+    # services + a TOTAL row so a spreadsheet SUM reconciles with the
+    # report's total even though top_services is capped.
     assert rows[0]["service"] == "Amazon EC2"
     assert rows[0]["cost_usd"] == pytest.approx(150.0)
     assert rows[0]["account"] == "test-account"
+    assert rows[-1]["service"] == "TOTAL"
+    assert rows[-1]["cost_usd"] == pytest.approx(_REPORT["total_cost_usd"])
 
 
 def test_export_result_to_dict_has_required_keys():
