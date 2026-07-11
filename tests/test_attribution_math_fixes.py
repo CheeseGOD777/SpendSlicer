@@ -325,3 +325,83 @@ def test_unscoped_lambda_rows_still_normalize_to_ce_total():
     R._reconcile_pools(buckets, totals, failed_services=set(), want=None,
                        display_region="all", lambda_ddb_region_scoped=False)
     assert round(sum(r.cost_usd for r in buckets["Lambda"]), 2) == 100.0
+
+
+# ---------------------------------------------------------------------------
+# RDS pricing — Pricing API wired in; stopped instances still bill storage;
+# Multi-AZ doubles; billing states beyond "available" earn instance hours.
+# ---------------------------------------------------------------------------
+
+def test_rds_instance_rate_uses_pricing_api(monkeypatch):
+    from aws_cost_ultra.core import pricing
+
+    monkeypatch.setattr(pricing, "_fetch_from_api", lambda *a, **k: 0.353)
+    rate = pricing.rds_instance_rate(None, "db.r6g.large", "postgres", "us-east-1")
+    assert rate == 0.353
+
+
+def test_rds_instance_rate_falls_back_when_api_empty(monkeypatch):
+    from aws_cost_ultra.core import pricing
+
+    monkeypatch.setattr(pricing, "_fetch_from_api", lambda *a, **k: None)
+    rate = pricing.rds_instance_rate(None, "db.t3.micro", "mysql", "eu-west-9")
+    assert rate == 0.021  # fallback table
+
+
+def _db(state="available", multi_az=False, storage_gb=500, cls="db.m5.large"):
+    return {
+        "DBInstanceIdentifier": "db-1",
+        "DBInstanceClass": cls,
+        "Engine": "postgres",
+        "DBInstanceStatus": state,
+        "InstanceCreateTime": datetime(2026, 1, 1),
+        "AllocatedStorage": storage_gb,
+        "StorageType": "gp2",
+        "MultiAZ": multi_az,
+        "TagList": [],
+    }
+
+
+def test_stopped_rds_still_bills_storage():
+    from aws_cost_ultra.resources.rds import _row_for_db
+
+    row = _row_for_db(
+        _db(state="stopped"), "ap-south-1",
+        datetime(2026, 6, 1), datetime(2026, 7, 1),
+        inst_rate=0.2, storage_rate=0.138,
+    )
+    # No instance hours, but 500 GB gp2 storage bills the full window:
+    # 500 * 0.138 * (720/730) ≈ $68.05 — the old code showed $0.00.
+    assert row.hours == 0.0
+    assert round(row.cost_usd, 1) == round(500 * 0.138 * (720 / 730.0), 1)
+
+
+def test_backing_up_rds_earns_instance_hours():
+    from aws_cost_ultra.resources.rds import _row_for_db
+
+    row = _row_for_db(
+        _db(state="backing-up"), "ap-south-1",
+        datetime(2026, 6, 1), datetime(2026, 7, 1),
+        inst_rate=0.2, storage_rate=0.138,
+    )
+    assert row.hours > 0  # only "stopped"/"stopping" suspend instance billing
+
+
+def test_multi_az_rds_doubles_instance_and_storage():
+    from aws_cost_ultra.resources.rds import _row_for_db
+
+    single = _row_for_db(_db(), "ap-south-1",
+                         datetime(2026, 6, 1), datetime(2026, 7, 1),
+                         inst_rate=0.2, storage_rate=0.138)
+    double = _row_for_db(_db(multi_az=True), "ap-south-1",
+                         datetime(2026, 6, 1), datetime(2026, 7, 1),
+                         inst_rate=0.2, storage_rate=0.138)
+    assert round(double.cost_usd, 2) == round(single.cost_usd * 2, 2)
+
+
+def test_region_to_location_covers_newer_regions():
+    from aws_cost_ultra.core.pricing import _region_to_location
+
+    assert _region_to_location("eu-north-1") == "EU (Stockholm)"
+    assert _region_to_location("ap-southeast-3") == "Asia Pacific (Jakarta)"
+    assert _region_to_location("il-central-1") == "Israel (Tel Aviv)"

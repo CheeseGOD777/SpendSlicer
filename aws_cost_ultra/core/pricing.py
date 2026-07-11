@@ -164,12 +164,60 @@ def ebs_rate(session: boto3.Session, volume_type: str, region: str = "ap-south-1
     return price
 
 
+# describe_db_instances Engine values -> Pricing API databaseEngine values.
+_RDS_ENGINE_TO_PRICING = {
+    "mysql": "MySQL",
+    "postgres": "PostgreSQL",
+    "mariadb": "MariaDB",
+    "aurora-mysql": "Aurora MySQL",
+    "aurora-postgresql": "Aurora PostgreSQL",
+}
+
+# describe_db_instances StorageType -> Pricing API volumeType values.
+_RDS_STORAGE_TO_PRICING = {
+    "gp2": "General Purpose",
+    "gp3": "General Purpose-GP3",
+    "io1": "Provisioned IOPS",
+    "io2": "Provisioned IOPS-IO2",
+    "standard": "Magnetic",
+}
+
+
+def _rds_engine_to_pricing(engine: str) -> Optional[str]:
+    e = (engine or "").lower()
+    if e in _RDS_ENGINE_TO_PRICING:
+        return _RDS_ENGINE_TO_PRICING[e]
+    if e.startswith("oracle"):
+        return "Oracle"
+    if e.startswith("sqlserver"):
+        return "SQL Server"
+    return None
+
+
 def rds_instance_rate(session: boto3.Session, instance_class: str, engine: str, region: str = "ap-south-1") -> float:
+    """Single-AZ on-demand rate. Callers double it for Multi-AZ deployments.
+
+    The fallback table only knows 7 small classes — without the Pricing API
+    every other class priced at $0.00 and its real cost either smeared onto
+    siblings via the rescale or vanished past the clamp band.
+    """
     key = f"rds:{region}:{instance_class}:{engine}"
     cached = _cache_get(key)
     if cached is not None:
         return cached
-    price = FALLBACK_RATES["rds"].get(instance_class, 0.0)
+
+    location = _region_to_location(region)
+    filters = [
+        {"Type": "TERM_MATCH", "Field": "instanceType",     "Value": instance_class},
+        {"Type": "TERM_MATCH", "Field": "location",         "Value": location},
+        {"Type": "TERM_MATCH", "Field": "deploymentOption", "Value": "Single-AZ"},
+    ]
+    pricing_engine = _rds_engine_to_pricing(engine)
+    if pricing_engine:
+        filters.append({"Type": "TERM_MATCH", "Field": "databaseEngine", "Value": pricing_engine})
+    price = _fetch_from_api(session, "AmazonRDS", filters)
+    if price is None:
+        price = FALLBACK_RATES["rds"].get(instance_class, 0.0)
     _cache_set(key, price)
     return price
 
@@ -179,7 +227,19 @@ def rds_storage_rate(session: boto3.Session, storage_type: str = "gp2", region: 
     cached = _cache_get(key)
     if cached is not None:
         return cached
-    price = FALLBACK_RATES["rds_storage"].get(storage_type, FALLBACK_RATES["rds_storage"]["gp2"])
+
+    location = _region_to_location(region)
+    volume_type = _RDS_STORAGE_TO_PRICING.get((storage_type or "").lower())
+    price = None
+    if volume_type:
+        price = _fetch_from_api(session, "AmazonRDS", [
+            {"Type": "TERM_MATCH", "Field": "productFamily",    "Value": "Database Storage"},
+            {"Type": "TERM_MATCH", "Field": "volumeType",       "Value": volume_type},
+            {"Type": "TERM_MATCH", "Field": "deploymentOption", "Value": "Single-AZ"},
+            {"Type": "TERM_MATCH", "Field": "location",         "Value": location},
+        ])
+    if price is None:
+        price = FALLBACK_RATES["rds_storage"].get(storage_type, FALLBACK_RATES["rds_storage"]["gp2"])
     _cache_set(key, price)
     return price
 
@@ -211,7 +271,22 @@ def _region_to_location(region: str) -> str:
         "ap-northeast-2": "Asia Pacific (Seoul)",
         "eu-west-1": "EU (Ireland)",
         "eu-west-2": "EU (London)",
+        "eu-west-3": "EU (Paris)",
         "eu-central-1": "EU (Frankfurt)",
+        "eu-central-2": "Europe (Zurich)",
+        "eu-north-1": "EU (Stockholm)",
+        "eu-south-1": "EU (Milan)",
+        "eu-south-2": "Europe (Spain)",
+        "ap-south-2": "Asia Pacific (Hyderabad)",
+        "ap-southeast-3": "Asia Pacific (Jakarta)",
+        "ap-southeast-4": "Asia Pacific (Melbourne)",
+        "ap-northeast-3": "Asia Pacific (Osaka)",
+        "ap-east-1": "Asia Pacific (Hong Kong)",
+        "me-south-1": "Middle East (Bahrain)",
+        "me-central-1": "Middle East (UAE)",
+        "af-south-1": "Africa (Cape Town)",
+        "il-central-1": "Israel (Tel Aviv)",
         "ca-central-1": "Canada (Central)",
+        "ca-west-1": "Canada West (Calgary)",
         "sa-east-1": "South America (Sao Paulo)",
     }.get(region, region)
