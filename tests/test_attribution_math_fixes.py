@@ -405,3 +405,52 @@ def test_region_to_location_covers_newer_regions():
     assert _region_to_location("eu-north-1") == "EU (Stockholm)"
     assert _region_to_location("ap-southeast-3") == "Asia Pacific (Jakarta)"
     assert _region_to_location("il-central-1") == "Israel (Tel Aviv)"
+
+
+# ---------------------------------------------------------------------------
+# Region filter — the Resources page's primary path ignored ?region= and
+# served (and cached) account-wide data under the region-scoped cache key.
+# ---------------------------------------------------------------------------
+
+class _FakeCur:
+    def has_data(self, account_id, window):
+        return True
+
+    def attribute_resources(self, account_id, window):
+        return [{"resource_id": "cur-row", "name": "cur-row", "service": "EC2",
+                 "tags": {}, "cost": 1.0, "usage_amount": None}]
+
+
+class _FakeCeStore:
+    def __init__(self):
+        self.calls = []
+
+    def attribute_resources_via_describe(self, account_id, window, *, session,
+                                         spec, errors=None, region="all"):
+        self.calls.append(region)
+        return [{"resource_id": f"describe-{region}", "name": "x", "service": "EC2",
+                 "tags": {}, "cost": 2.0, "usage_amount": None}]
+
+
+def test_cost_source_passes_region_to_describe_path():
+    from aws_cost_ultra.aws.cost_source import CostSource
+
+    ce = _FakeCeStore()
+    src = CostSource(cur_store=None, cost_store=ce)
+    src.attribute_resources("123", None, session=None, spec=None, region="us-east-1")
+    assert ce.calls == ["us-east-1"]
+
+
+def test_cost_source_skips_cur_for_region_scoped_requests():
+    from aws_cost_ultra.aws.cost_source import CostSource
+
+    ce = _FakeCeStore()
+    src = CostSource(cur_store=_FakeCur(), cost_store=ce)
+    # CUR rows carry no region -> a region-filtered request must use describe.
+    rows = src.attribute_resources("123", None, session=None, spec=None,
+                                   region="us-east-1")
+    assert rows[0]["resource_id"] == "describe-us-east-1"
+    # Account-wide requests still prefer CUR.
+    rows_all = src.attribute_resources("123", None, session=None, spec=None,
+                                       region="all")
+    assert rows_all[0]["resource_id"] == "cur-row"

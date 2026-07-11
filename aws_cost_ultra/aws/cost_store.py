@@ -187,14 +187,18 @@ class CostStore:
                 with self._inflight_lock:
                     self._inflight.pop(key, None)
 
-    def attribute_resources_via_describe(self, account_id, window, *, session, spec, errors=None) -> list[dict]:
+    def attribute_resources_via_describe(
+        self, account_id, window, *, session, spec, errors=None, region="all",
+    ) -> list[dict]:
         """Fallback when CUR is not available: describe + USAGE_TYPE attribution.
 
         ``errors`` (optional list): populated with per-service failure dicts when
         a region/work unit fails after retries (FINDING 24).
         """
         from aws_cost_ultra.resources.runner import enumerate_all
-        resources = enumerate_all(session=session, window=window, spec=spec, errors=errors)
+        resources = enumerate_all(
+            session=session, window=window, spec=spec, errors=errors, region=region,
+        )
         return [
             {
                 "resource_id": r.resource_id,

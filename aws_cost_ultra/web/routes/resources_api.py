@@ -106,7 +106,10 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
             src = get_cost_source(session)
             # CostSource handles CUR-first / CE-describe fallback internally.
             # Both paths return the same simplified dict shape, so always normalize.
-            raw_rows = src.attribute_resources(account_id, window, session=session, spec=spec, errors=attr_errors)
+            raw_rows = src.attribute_resources(
+                account_id, window, session=session, spec=spec,
+                errors=attr_errors, region=region,
+            )
             ctx["rows"] = [_normalize_cur_row(r) for r in raw_rows]
         except Exception:
             # Any error in CostSource wiring falls back to existing describe path.
@@ -138,7 +141,14 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         )
 
         ce = get_ce_client(session)
-        ce_total_cv = ce.get_total_cost(window, spec=spec)
+        # Reconcile like-for-like: a region-filtered view must compare against
+        # the REGION-scoped CE total, not the account-wide one (which reported
+        # the rest of the world as "unattributed").
+        totals_spec = spec
+        if region != ALL_REGIONS:
+            from dataclasses import replace as _dc_replace
+            totals_spec = _dc_replace(spec, region=region)
+        ce_total_cv = ce.get_total_cost(window, spec=totals_spec)
         ctx["ce_total"] = ce_total_cv.amount_usd
         ctx["unattributed"] = max(ctx["ce_total"] - ctx["total"], 0.0)
         ctx["unattributed_pct"] = (
