@@ -163,7 +163,8 @@ def test_find_unused_eips_returns_unassociated():
     results = find_unused_eips(session, "us-east-1")
     assert len(results) == 1
     assert results[0].resource_id == "eipalloc-abc"
-    assert results[0].estimated_monthly_cost_usd == pytest.approx(3.60)
+    # ~730 h/month at the $0.005/hr public-IPv4 rate (was 720h/$3.60).
+    assert results[0].estimated_monthly_cost_usd == pytest.approx(3.65)
 
 
 def test_find_idle_resources_empty_checks_returns_empty():

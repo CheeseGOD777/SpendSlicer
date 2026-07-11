@@ -52,35 +52,103 @@ def _tag_name(tags: list[dict] | None, fallback: str) -> str:
     return fallback
 
 
+# $/GB-month by volume type (us-east-1 list; close enough for waste triage —
+# the old flat $0.10 was 7x high for sc1 and ignored IOPS entirely).
+_EBS_GB_MONTH = {
+    "gp3": 0.08,
+    "gp2": 0.10,
+    "io1": 0.125,
+    "io2": 0.125,
+    "st1": 0.045,
+    "sc1": 0.015,
+    "standard": 0.05,
+}
+_IO_IOPS_MONTH = 0.065        # io1/io2 $/provisioned-IOPS-month (first tier)
+_GP3_IOPS_MONTH = 0.005       # gp3 $/IOPS-month above the 3000 baseline
+_GP3_BASELINE_IOPS = 3000
+_EIP_MONTHLY_USD = round(730 * 0.005, 2)  # public-IPv4 rate x ~730 h/month
+
+
+def _ebs_monthly_estimate(size_gb: float, vol_type: str, iops: float) -> float:
+    """Type-aware monthly estimate: storage plus provisioned IOPS where billed."""
+    vt = (vol_type or "").lower()
+    rate = _EBS_GB_MONTH.get(vt, _EBS_GB_MONTH["gp2"])
+    est = size_gb * rate
+    if vt in ("io1", "io2"):
+        est += max(iops or 0, 0) * _IO_IOPS_MONTH
+    elif vt == "gp3" and (iops or 0) > _GP3_BASELINE_IOPS:
+        est += (iops - _GP3_BASELINE_IOPS) * _GP3_IOPS_MONTH
+    return est
+
+
+def _rds_stopped_estimate(storage_gb: float, storage_rate: float, multi_az: bool) -> float:
+    """A stopped RDS instance still bills allocated storage (x2 for Multi-AZ)."""
+    return storage_gb * storage_rate * (2.0 if multi_az else 1.0)
+
+
 # ---------------------------------------------------------------------------
 # Per-resource-type finders
 # ---------------------------------------------------------------------------
+
+def _attached_volume_estimates(ec2, instance_ids: list[str]) -> dict[str, float]:
+    """instance_id -> monthly $ of its attached EBS volumes (chunked filter)."""
+    out: dict[str, float] = {}
+    for i in range(0, len(instance_ids), 190):
+        chunk = instance_ids[i:i + 190]
+        for page in ec2.get_paginator("describe_volumes").paginate(
+            Filters=[{"Name": "attachment.instance-id", "Values": chunk}]
+        ):
+            for vol in page.get("Volumes", []):
+                est = _ebs_monthly_estimate(
+                    vol.get("Size", 0), vol.get("VolumeType", "gp2"), vol.get("Iops", 0),
+                )
+                for att in vol.get("Attachments", []):
+                    iid = att.get("InstanceId")
+                    if iid in chunk:
+                        out[iid] = out.get(iid, 0.0) + est
+    return out
+
 
 def find_stopped_ec2(session: boto3.Session, region: str) -> list[IdleResource]:
     """EC2 instances in stopped state — still charge for attached EBS / EIPs."""
     results: list[IdleResource] = []
     try:
         ec2 = session.client("ec2", region_name=region)
+        stopped: list[dict] = []
         paginator = ec2.get_paginator("describe_instances")
         for page in paginator.paginate(
             Filters=[{"Name": "instance-state-name", "Values": ["stopped"]}]
         ):
             for res in page.get("Reservations", []):
-                for inst in res.get("Instances", []):
-                    name = _tag_name(inst.get("Tags"), inst["InstanceId"])
-                    results.append(IdleResource(
-                        service="EC2",
-                        resource_id=inst["InstanceId"],
-                        resource_name=name,
-                        region=region,
-                        reason="Instance is stopped — EBS volumes and EIPs continue to accrue charges",
-                        attributes={
-                            "instance_type": inst.get("InstanceType", ""),
-                            "az": inst.get("Placement", {}).get("AvailabilityZone", ""),
-                            "stop_reason": inst.get("StateTransitionReason", ""),
-                        },
-                        arn=f"arn:aws:ec2:{region}:{inst.get('OwnerId', '')}:instance/{inst['InstanceId']}",
-                    ))
+                stopped.extend(res.get("Instances", []))
+
+        # The finding text says "EBS volumes continue to accrue charges" —
+        # price them instead of reporting $0.00 waste.
+        vol_est: dict[str, float] = {}
+        if stopped:
+            try:
+                vol_est = _attached_volume_estimates(
+                    ec2, [i["InstanceId"] for i in stopped],
+                )
+            except ClientError:
+                vol_est = {}
+
+        for inst in stopped:
+            name = _tag_name(inst.get("Tags"), inst["InstanceId"])
+            results.append(IdleResource(
+                service="EC2",
+                resource_id=inst["InstanceId"],
+                resource_name=name,
+                region=region,
+                reason="Instance is stopped — EBS volumes and EIPs continue to accrue charges",
+                estimated_monthly_cost_usd=vol_est.get(inst["InstanceId"], 0.0),
+                attributes={
+                    "instance_type": inst.get("InstanceType", ""),
+                    "az": inst.get("Placement", {}).get("AvailabilityZone", ""),
+                    "stop_reason": inst.get("StateTransitionReason", ""),
+                },
+                arn=f"arn:aws:ec2:{region}:{inst.get('OwnerId', '')}:instance/{inst['InstanceId']}",
+            ))
     except ClientError:
         pass
     return results
@@ -99,9 +167,7 @@ def find_unattached_ebs(session: boto3.Session, region: str) -> list[IdleResourc
                 name = _tag_name(vol.get("Tags"), vol["VolumeId"])
                 size_gb = vol.get("Size", 0)
                 vol_type = vol.get("VolumeType", "gp2")
-                # Rough estimate: gp2/gp3 ~$0.08-0.10/GB-month
-                rate = 0.10
-                estimated = size_gb * rate
+                estimated = _ebs_monthly_estimate(size_gb, vol_type, vol.get("Iops", 0))
                 results.append(IdleResource(
                     service="EBS",
                     resource_id=vol["VolumeId"],
@@ -138,7 +204,7 @@ def find_unused_eips(session: boto3.Session, region: str) -> list[IdleResource]:
                     resource_name=name,
                     region=region,
                     reason="Elastic IP not associated with any instance or network interface",
-                    estimated_monthly_cost_usd=3.60,
+                    estimated_monthly_cost_usd=_EIP_MONTHLY_USD,
                     attributes={
                         "public_ip": addr.get("PublicIp", ""),
                         "allocation_id": addr.get("AllocationId", ""),
@@ -215,12 +281,20 @@ def find_stopped_rds(session: boto3.Session, region: str) -> list[IdleResource]:
             for db in page.get("DBInstances", []):
                 if db.get("DBInstanceStatus") != "stopped":
                     continue
+                from aws_cost_ultra.core import pricing
+                storage_rate = pricing.rds_storage_rate(
+                    session, db.get("StorageType", "gp2"), region,
+                )
                 results.append(IdleResource(
                     service="RDS",
                     resource_id=db["DBInstanceIdentifier"],
                     resource_name=db["DBInstanceIdentifier"],
                     region=region,
                     reason="RDS instance is stopped — storage charges still apply; AWS will auto-restart after 7 days",
+                    estimated_monthly_cost_usd=_rds_stopped_estimate(
+                        db.get("AllocatedStorage", 0), storage_rate,
+                        db.get("MultiAZ", False),
+                    ),
                     attributes={
                         "engine": db.get("Engine", ""),
                         "instance_class": db.get("DBInstanceClass", ""),

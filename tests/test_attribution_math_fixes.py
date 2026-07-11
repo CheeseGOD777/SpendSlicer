@@ -493,3 +493,33 @@ def test_fixed_budget_limit_still_wins():
         now_epoch=1780358400,
     )
     assert amount == 50.0
+
+
+# ---------------------------------------------------------------------------
+# Audit waste estimates — stopped EC2/RDS showed $0.00 while the finding text
+# itself said charges continue; EBS used a flat $0.10/GB for every type.
+# ---------------------------------------------------------------------------
+
+def test_ebs_monthly_estimate_is_type_aware():
+    from aws_cost_ultra.audit.idle import _ebs_monthly_estimate
+
+    assert round(_ebs_monthly_estimate(100, "gp3", 3000), 2) == 8.0
+    assert round(_ebs_monthly_estimate(1024, "sc1", 0), 2) == round(1024 * 0.015, 2)
+    # io2 100 GB with 10,000 provisioned IOPS: storage + IOPS, not $10 flat.
+    est = _ebs_monthly_estimate(100, "io2", 10_000)
+    assert est > 600  # ~ $12.5 storage + ~$650 IOPS
+    # gp3 provisioned IOPS above the 3000 baseline bill extra.
+    assert _ebs_monthly_estimate(100, "gp3", 5000) > _ebs_monthly_estimate(100, "gp3", 3000)
+
+
+def test_stopped_rds_estimate_bills_storage():
+    from aws_cost_ultra.audit.idle import _rds_stopped_estimate
+
+    assert round(_rds_stopped_estimate(500, 0.138, multi_az=False), 2) == 69.0
+    assert round(_rds_stopped_estimate(500, 0.138, multi_az=True), 2) == 138.0
+
+
+def test_idle_eip_estimate_uses_730_hours():
+    from aws_cost_ultra.audit.idle import _EIP_MONTHLY_USD
+
+    assert _EIP_MONTHLY_USD == round(730 * 0.005, 2)  # 3.65, not 3.60
