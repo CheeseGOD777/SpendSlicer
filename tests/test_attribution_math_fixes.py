@@ -454,3 +454,42 @@ def test_cost_source_skips_cur_for_region_scoped_requests():
     rows_all = src.attribute_resources("123", None, session=None, spec=None,
                                        region="all")
     assert rows_all[0]["resource_id"] == "cur-row"
+
+
+# ---------------------------------------------------------------------------
+# Planned budgets — PlannedBudgetLimits is keyed by epoch-second period-start
+# strings, never "MONTHLY"; the old lookup dropped every planned budget.
+# ---------------------------------------------------------------------------
+
+def test_planned_budget_limit_picks_current_period():
+    from aws_cost_ultra.audit.budgets import _budget_limit
+
+    # Periods starting Jun 1 and Jul 1 2026 (epoch seconds, as AWS returns).
+    planned = {
+        "1780272000": {"Amount": "300.0", "Unit": "USD"},  # Jul 1 2026
+        "1777680000": {"Amount": "200.0", "Unit": "USD"},  # Jun 1 2026
+    }
+    amount, unit = _budget_limit({"PlannedBudgetLimits": planned},
+                                 now_epoch=1780358400)  # Jul 2 2026
+    assert amount == 300.0
+    assert unit == "USD"
+
+
+def test_planned_budget_before_first_period_uses_earliest():
+    from aws_cost_ultra.audit.budgets import _budget_limit
+
+    planned = {"1780272000": {"Amount": "300.0", "Unit": "USD"}}
+    amount, unit = _budget_limit({"PlannedBudgetLimits": planned},
+                                 now_epoch=1000)  # long before the plan starts
+    assert amount == 300.0
+
+
+def test_fixed_budget_limit_still_wins():
+    from aws_cost_ultra.audit.budgets import _budget_limit
+
+    amount, unit = _budget_limit(
+        {"BudgetLimit": {"Amount": "50", "Unit": "USD"},
+         "PlannedBudgetLimits": {"1780272000": {"Amount": "300.0", "Unit": "USD"}}},
+        now_epoch=1780358400,
+    )
+    assert amount == 50.0

@@ -67,6 +67,42 @@ def _safe_float(s: Optional[str]) -> Optional[float]:
         return None
 
 
+def _budget_limit(b: dict, now_epoch: Optional[float] = None) -> tuple[Optional[float], str]:
+    """(limit, unit) for a budget — fixed or planned.
+
+    ``PlannedBudgetLimits`` is keyed by period-START-time epoch-second
+    strings (per the AWS Budgets API), never by literal "MONTHLY" — the old
+    lookup silently dropped every planned/auto-adjusting budget, breached
+    ones included. Pick the plan period covering ``now`` (largest start
+    <= now), or the earliest period when now precedes the plan.
+    """
+    fixed = b.get("BudgetLimit") or {}
+    amount = _safe_float(fixed.get("Amount"))
+    if amount is not None:
+        return amount, fixed.get("Unit") or "USD"
+
+    planned = b.get("PlannedBudgetLimits") or {}
+    entries = []
+    for key, entry in planned.items():
+        try:
+            entries.append((float(key), entry))
+        except (TypeError, ValueError):
+            continue
+    if not entries:
+        return None, "USD"
+    entries.sort(key=lambda kv: kv[0])
+    if now_epoch is None:
+        from datetime import datetime, timezone
+        now_epoch = datetime.now(timezone.utc).timestamp()
+    current = entries[0][1]
+    for start, entry in entries:
+        if start <= now_epoch:
+            current = entry
+        else:
+            break
+    return _safe_float(current.get("Amount")), current.get("Unit") or "USD"
+
+
 def get_budget_findings(
     session: boto3.Session,
     warn_at_pct: float = 80.0,
@@ -93,18 +129,9 @@ def get_budget_findings(
         paginator = budgets_client.get_paginator("describe_budgets")
         for page in paginator.paginate(AccountId=account_id):
             for b in page.get("Budgets", []):
-                limit = _safe_float(
-                    b.get("BudgetLimit", {}).get("Amount")
-                    or b.get("PlannedBudgetLimits", {}).get("MONTHLY", {}).get("Amount")
-                )
+                limit, limit_unit = _budget_limit(b)
                 if limit is None:
                     continue
-
-                limit_unit = (
-                    b.get("BudgetLimit", {}).get("Unit")
-                    or b.get("PlannedBudgetLimits", {}).get("MONTHLY", {}).get("Unit")
-                    or "USD"
-                )
 
                 calc_spent = b.get("CalculatedSpend", {})
                 actual = _safe_float(
