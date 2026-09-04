@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import logging
 import os
@@ -16,8 +17,8 @@ from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
-from costsight.core.types import Granularity
 from costsight.core.service_groups import merge_ec2_service_groups
+from costsight.core.types import Granularity
 from costsight.exporters import ScheduledExportConfig, run_scheduled_export
 from costsight.web.context import friendly_error
 from costsight.web.deps import (
@@ -36,24 +37,22 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 # App-owned export directory (mode 0700), not a world-shared /tmp subdir that
-# any local user could pre-create and then read/replace (FINDING 22).
+# any local user could pre-create and then read/replace.
 _EXPORT_DIR = Path(
     os.environ.get("COSTSIGHT_EXPORT_DIR", str(Path.home() / ".cache" / "costsight" / "exports"))
 )
-# Prune exported files older than this many seconds on each run (FINDING 48).
+# Prune exported files older than this many seconds on each run.
 _EXPORT_MAX_AGE_S = 24 * 3600
 # Short TTL cache for the built report, so repeated/concurrent exports of the
 # same (profile, period) don't each re-run STS + CE + full resource enumeration
-# (FINDING 23).
+#.
 _REPORT_TTL_S = 300
 
 
 def _app_export_dir() -> Path:
     _EXPORT_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(_EXPORT_DIR, 0o700)
-    except OSError:
-        pass
     return _EXPORT_DIR
 
 
@@ -96,10 +95,10 @@ _FMT_MEDIA = {
 
 def _safe_filename(name: str | None, ext: str) -> str:
     if not name:
-        return f"cloud_ledger_{_dt.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
+        return f"costsight_{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
     stem = re.sub(r"[^a-zA-Z0-9._-]+", "_", name).strip("._-")
     if not stem:
-        stem = f"cloud_ledger_{_dt.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        stem = f"costsight_{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     if stem.lower().endswith(f".{ext}"):
         return stem
     return f"{stem}.{ext}"
@@ -109,10 +108,10 @@ def _build_report(profile: str, period: str) -> tuple[dict, object]:
     import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
+    from costsight.audit.budgets import get_budget_findings
     from costsight.core.filters import pre_credit_gross
     from costsight.core.provenance import Provenance
     from costsight.core.types import CostMetric
-    from costsight.audit.budgets import get_budget_findings
 
     session = get_session(profile)
     ce = get_ce_client(session)
@@ -180,11 +179,11 @@ def _assemble_report(
     KPI counts carry the REAL totals — a tile reading "Top Resources 50" that
     was just the list cap told the reader nothing."""
     return {
-        "title": "Cloud Ledger Cost Report",
-        "platform_name": "Cloud Ledger",
+        "title": "CostSight Cost Report",
+        "platform_name": "CostSight",
         "account": profile,
         "period": period,
-        "generated_at": _dt.datetime.utcnow().isoformat() + "Z",
+        "generated_at": _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None).isoformat() + "Z",
         "cost_basis": "Pre-credit gross (excludes Credit/Refund/Upfront)",
         "total_cost_usd": total,
         "services_count": len(services),
@@ -236,7 +235,7 @@ def api_export_download(
         report, session = _cached_report(profile, period)
         # Per-request private temp dir (unpredictable name, mode 0700) instead
         # of a fixed world-shared /tmp path a local user could pre-create and
-        # then read or swap the file out from under FileResponse (FINDING 22).
+        # then read or swap the file out from under FileResponse.
         output_dir = Path(tempfile.mkdtemp(prefix="costsight-dl-"))
         config = ScheduledExportConfig(output_dir=str(output_dir), formats=[fmt])
         results = run_scheduled_export(report, config, session=session)
@@ -253,7 +252,7 @@ def api_export_download(
 
         filename = _safe_filename(name, _FMT_EXT[fmt])
         # The downloaded file is a throwaway intermediate — delete the whole
-        # per-request dir after the response finishes streaming (FINDING 48).
+        # per-request dir after the response finishes streaming.
         return FileResponse(
             path=src,
             media_type=_FMT_MEDIA[fmt],

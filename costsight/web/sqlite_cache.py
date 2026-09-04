@@ -7,13 +7,14 @@ account_id, fingerprint) without losing entries.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger("costsight.cache")
 
@@ -60,10 +61,8 @@ class SqliteCache:
             # Drop the cached (possibly bad) connection before unlinking.
             old = getattr(self._local, "conn", None)
             if old is not None:
-                try:
+                with contextlib.suppress(Exception):
                     old.close()
-                except Exception:
-                    pass
                 self._local.conn = None
             self._path.unlink(missing_ok=True)
             conn = self._get_conn()
@@ -102,7 +101,7 @@ class SqliteCache:
                 if do_sweep:
                     self._writes_since_sweep = 0
         except sqlite3.Error as exc:
-            # FINDING 51: under multi-process contention (uvicorn --workers N, a
+            # Under multi-process contention (uvicorn --workers N, a
             # CLI sharing the db) or a long WAL checkpoint, a write can exceed
             # the busy timeout and raise. A failed *cache* write must never fail
             # the request — log and carry on uncached.
@@ -127,7 +126,7 @@ class SqliteCache:
             # of lock contention here.
             log.warning("cache sweep skipped: %s", exc)
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         conn = self._get_conn()
         row = conn.execute(
             "SELECT value_json, created_at, ttl_seconds, swr_seconds FROM cache_entries WHERE key=?",
@@ -153,7 +152,7 @@ class SqliteCache:
             return None
         return json.loads(value_json)
 
-    def get_swr(self, key: str) -> tuple[Optional[Any], bool]:
+    def get_swr(self, key: str) -> tuple[Any | None, bool]:
         conn = self._get_conn()
         row = conn.execute(
             "SELECT value_json, created_at, ttl_seconds, swr_seconds FROM cache_entries WHERE key=?",
@@ -187,7 +186,7 @@ class SqliteCache:
                 # avoids a LIKE '%' full-table scan.
                 cur = conn.execute("DELETE FROM cache_entries")
             else:
-                # FINDING 25: range bounds use the key PRIMARY KEY index;
+                # Range bounds use the key PRIMARY KEY index;
                 # `LIKE 'prefix%'` does NOT (case_sensitive_like is OFF by
                 # default), so it was a full-table scan over value_json-laden
                 # rows while holding the global write lock. `￿` is a high

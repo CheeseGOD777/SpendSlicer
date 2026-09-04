@@ -8,7 +8,7 @@ enabled), fall back to the cached CE matrix.
 
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Protocol
 
 from costsight.aws.cost_store import CostStore, DailyServiceMatrix
 

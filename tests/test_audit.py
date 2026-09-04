@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from costsight.audit.budgets import BudgetFinding, BudgetStatus, get_budget_findings
+from costsight.audit.budgets import BudgetStatus, get_budget_findings
 from costsight.audit.idle import (
-    IdleResource,
     find_idle_resources,
     find_stopped_ec2,
     find_unattached_ebs,
     find_unused_eips,
 )
 from costsight.audit.runner import AuditResult, run_audit
-from costsight.audit.untagged import UntaggedResource, scan_untagged
-
+from costsight.audit.untagged import scan_untagged
 
 # ---------------------------------------------------------------------------
 # Helpers

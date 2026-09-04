@@ -1,13 +1,13 @@
-"""Web UI — FastAPI + Jinja2 + HTMX + Alpine.js + Chart.js.
+"""Web UI — FastAPI backend serving a prebuilt React single-page app.
 
 Run with:
-    uvicorn costsight.web.app:app --reload --port 8080
+    uvicorn costsight.web.app:app --port 8080
 
-Or via the serve() helper:
+Or via the helpers:
     from costsight.web.app import serve
-    serve(port=8080, reload=True)
+    serve(port=8080)
 """
 
-from .app import app, serve
+from .app import app, main, serve
 
-__all__ = ["app", "serve"]
+__all__ = ["app", "main", "serve"]

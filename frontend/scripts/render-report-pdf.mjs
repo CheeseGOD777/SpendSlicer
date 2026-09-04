@@ -42,7 +42,7 @@ const html = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${esc(report.title || "Cloud Ledger Report")}</title>
+  <title>${esc(report.title || "CostSight Report")}</title>
   <style>
     @page { size: A4; margin: 16mm; }
     body { font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif; color: #0f172a; margin: 0; font-size: 12px; }
@@ -68,7 +68,7 @@ const html = `<!doctype html>
 </head>
 <body>
   <div class="header">
-    <div class="brand">${esc(report.platform_name || "Cloud Ledger")}</div>
+    <div class="brand">${esc(report.platform_name || "CostSight")}</div>
     <div class="subtitle">${esc(report.title || "Cost Report")}</div>
     <div class="meta">Generated: ${esc(report.generated_at || "")} · Account: ${esc(report.account || "")} · Period: ${esc(report.period || "")}</div>
     <div class="meta">${esc(report.cost_basis || "")}</div>

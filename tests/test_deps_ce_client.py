@@ -31,9 +31,11 @@ def test_different_threads_get_different_instances():
 
     main_client = get_ce_client(sess)
     t1 = threading.Thread(target=grab, args=("t1",))
-    t1.start(); t1.join()
+    t1.start()
+    t1.join()
     t2 = threading.Thread(target=grab, args=("t2",))
-    t2.start(); t2.join()
+    t2.start()
+    t2.join()
 
     assert seen["t1"] is not main_client
     assert seen["t2"] is not main_client

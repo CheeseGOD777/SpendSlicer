@@ -18,7 +18,6 @@ import pytest
 
 from costsight.core.types import TimeWindow
 
-
 # ---------------------------------------------------------------------------
 # Window math
 # ---------------------------------------------------------------------------
@@ -112,8 +111,8 @@ def test_available_periods_has_both_groups():
 
 
 def test_prev_window_for_month_is_previous_calendar_month():
-    from costsight.web.routes.cost import _prev_window
     from costsight.web.deps import period_to_window
+    from costsight.web.routes.cost import _prev_window
 
     # March 2026 (31-day predecessor problem): duration-shift would land in Feb
     # mid-month; the fix must return all of February 2026.
@@ -123,8 +122,8 @@ def test_prev_window_for_month_is_previous_calendar_month():
 
 
 def test_prev_window_for_january_crosses_year():
-    from costsight.web.routes.cost import _prev_window
     from costsight.web.deps import period_to_window
+    from costsight.web.routes.cost import _prev_window
 
     w = period_to_window("2026-01")
     prev = _prev_window("2026-01", w)
@@ -149,7 +148,7 @@ def test_build_ce_filter_includes_region_dimension():
 
 
 def test_region_omitted_filter_has_no_region_dimension():
-    from costsight.core.filters import pre_credit_gross, build_ce_filter
+    from costsight.core.filters import build_ce_filter, pre_credit_gross
 
     built = build_ce_filter(pre_credit_gross()) or {}
     flat = built.get("And", [built])
@@ -194,7 +193,6 @@ def test_cache_periodic_sweep_purges_dead_rows(tmp_path):
 def test_lambda_dynamodb_rescaled_to_single_ce_total(monkeypatch):
     """Simulate functions in N regions each splitting the full account-wide CE
     total; the reconciled sum must equal the single CE total, not N x it."""
-    from costsight.resources import runner as R
     from costsight.resources.base import AttributedResource
 
     N_REGIONS = 8           # > 5 so the old clamp would have skipped the fix
@@ -236,9 +234,10 @@ def test_lambda_dynamodb_rescaled_to_single_ce_total(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_mtd_prev_window_is_same_day_slice_not_full_month():
-    from costsight.web.routes.cost import _prev_window
-    from costsight.core.types import TimeWindow
     from datetime import datetime, timezone
+
+    from costsight.core.types import TimeWindow
+    from costsight.web.routes.cost import _prev_window
 
     # MTD through June 6 -> compare against June-equivalent slice of May (1st-6th),
     # NOT all of May.
@@ -267,8 +266,9 @@ def test_csv_export_neutralises_formula_injection():
 
 
 def test_get_total_cost_does_not_double_count(monkeypatch):
-    from costsight.aws.cost_explorer import CostExplorerClient
     from unittest.mock import MagicMock
+
+    from costsight.aws.cost_explorer import CostExplorerClient
 
     # A period that (pathologically) carries BOTH a Total and Groups for the
     # metric. The fixed code reads Total only — not Total + Groups.
@@ -299,7 +299,8 @@ def test_cache_bust_prefix_uses_range_bounds(tmp_path):
 
 
 def _tw(days):
-    from costsight.core.types import TimeWindow
     from datetime import datetime, timedelta, timezone
+
+    from costsight.core.types import TimeWindow
     now = datetime.now(tz=timezone.utc)
     return TimeWindow(start=now - timedelta(days=days), end=now)

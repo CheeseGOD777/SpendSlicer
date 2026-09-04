@@ -33,7 +33,7 @@ def prewarm_background(profiles: list[str]) -> None:
                 continue
 
             window = period_to_window("mtd")
-            # FINDING 43: warm through CostSource — the same path request
+            # Warm through CostSource — the same path request
             # handlers use — so when CUR is configured the warm hits the (free)
             # CUR store instead of spending a CE call that the routes then never
             # read (they'd prefer CUR). With no CUR it's still the CE matrix.

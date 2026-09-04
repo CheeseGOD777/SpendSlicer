@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
@@ -11,17 +12,15 @@ from costsight.audit.runner import run_audit
 from costsight.aws.session import load_profile_bundle
 from costsight.resources.runner import ALL_REGIONS
 from costsight.web.context import friendly_error
-from costsight.web.deps import cache_get_swr, cache_set, get_session, schedule_refresh
+from costsight.web.deps import cache_get_swr, cache_set, schedule_refresh
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/audit")
 
-import re as _re
-
-# Validate region before it lands in a cache key (FINDING 20): AWS region code
+# Validate region before it lands in a cache key: AWS region code
 # shape, or the ALL_REGIONS sentinel; anything else clamps to ALL_REGIONS.
-_REGION_RE = _re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
+_REGION_RE = re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
 
 
 def _safe_region(region: str) -> str:
@@ -59,7 +58,7 @@ def build_audit_ctx(profile: str, region: str, include_snapshots: int) -> dict:
         ctx["untagged"] = [r.to_dict() for r in result.untagged]
         ctx["estimated_waste"] = result.total_estimated_waste_usd
         if result.errors:
-            # FINDING 16: per-check runner errors are raw boto3/botocore messages
+            # Per-check runner errors are raw boto3/botocore messages
             # that commonly embed ARNs, account ids, role names, and request
             # context. Don't return them verbatim — log server-side and surface
             # only a generic count to the client.

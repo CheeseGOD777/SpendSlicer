@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Optional
 
 import boto3
 
@@ -22,7 +21,7 @@ class AuditResult:
     """Aggregated findings for one profile across all scanned regions."""
 
     profile: str
-    account_id: Optional[str]
+    account_id: str | None
     regions_scanned: list[str]
     untagged: list[UntaggedResource] = field(default_factory=list)
     idle: list[IdleResource] = field(default_factory=list)
@@ -65,7 +64,7 @@ def _scan_region(
 def run_audit(
     session: boto3.Session,
     profile: str,
-    account_id: Optional[str],
+    account_id: str | None,
     regions: list[str],
     required_tags: list[str] | None = None,
     idle_checks: list[str] | None = None,

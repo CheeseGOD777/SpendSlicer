@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 
 @dataclass
@@ -14,8 +13,8 @@ class ExportResult:
     format: str                     # "csv" | "json" | "pdf" | "slack" | "s3" | "email"
     destination: str                # path, URL, channel name, email address, etc.
     success: bool
-    error: Optional[str] = None
-    bytes_written: Optional[int] = None
+    error: str | None = None
+    bytes_written: int | None = None
     exported_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
     def to_dict(self) -> dict:

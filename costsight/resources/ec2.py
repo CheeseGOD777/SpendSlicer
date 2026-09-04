@@ -7,8 +7,8 @@ CE-RESOURCE_ID attribution was removed (UsageRecord surcharge). Plan 2
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Optional
 
 import boto3
 from botocore.config import Config
@@ -17,7 +17,7 @@ from costsight.core.filters import CostFilterSpec, build_ce_filter, pre_credit_g
 
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
 
-# FINDING 24: enable botocore adaptive retries so CE/EC2 throttling self-heals
+# Enable botocore adaptive retries so CE/EC2 throttling self-heals
 # (retried at the client layer) before it surfaces to the fan-out handlers.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
@@ -27,7 +27,7 @@ _FALLBACK_SOURCE = "cost_explorer_usage_type"
 def describe_instances_raw(session: boto3.Session, region: str) -> list[dict]:
     """One ``describe_instances`` scan for a region → flat list of instance dicts.
 
-    FINDING 21: EC2 attribution and EBS's id→name lookup both need the region's
+    EC2 attribution and EBS's id→name lookup both need the region's
     instances. Centralizing the scan here lets the runner fetch it once per
     region and feed both, instead of paginating ``describe_instances`` twice.
     """
@@ -36,7 +36,7 @@ def describe_instances_raw(session: boto3.Session, region: str) -> list[dict]:
     for page in ec2.get_paginator("describe_instances").paginate():
         for res in page.get("Reservations", []):
             for inst in res.get("Instances", []):
-                # FINDING 38: keep only the fields the two consumers actually
+                # Keep only the fields the two consumers actually
                 # read (attribution + EBS id→name), not the full raw payload
                 # (NetworkInterfaces, BlockDeviceMappings, SecurityGroups, all
                 # metadata — KBs/instance held for every region for the run).
@@ -60,7 +60,7 @@ def attribute_ec2(
     window_start: datetime,
     window_end: datetime,
     region: str,
-    spec: Optional[CostFilterSpec] = None,
+    spec: CostFilterSpec | None = None,
 ) -> list[AttributedResource]:
     """Attribute EC2 for one region via USAGE_TYPE buckets split by running hours.
 
@@ -80,12 +80,12 @@ def attribute_ec2_account(
     window_start: datetime,
     window_end: datetime,
     regions: list[str],
-    spec: Optional[CostFilterSpec] = None,
-    instances_provider: Optional[Callable[[str], list[dict]]] = None,
+    spec: CostFilterSpec | None = None,
+    instances_provider: Callable[[str], list[dict]] | None = None,
 ) -> list[AttributedResource]:
     """Attribute EC2 across all regions via USAGE_TYPE fallback (no CE RESOURCE_ID).
 
-    ``instances_provider`` (optional, FINDING 21): ``fn(region) -> [instance, ...]``
+    ``instances_provider`` (optional): ``fn(region) -> [instance, ...]``
     returning the region's already-fetched ``describe_instances`` result, so EC2
     and EBS share a single scan per region.
     """
@@ -107,8 +107,8 @@ def _attribute_from_usage_type(
     window_start: datetime,
     window_end: datetime,
     region: str,
-    spec: Optional[CostFilterSpec] = None,
-    instances: Optional[list[dict]] = None,
+    spec: CostFilterSpec | None = None,
+    instances: list[dict] | None = None,
 ) -> list[AttributedResource]:
     """Legacy USAGE_TYPE + running-hours proportional split."""
     spec = spec or pre_credit_gross()
@@ -120,7 +120,7 @@ def _attribute_from_usage_type(
     filt_parts.append({
         "Dimensions": {"Key": "SERVICE", "Values": ["Amazon Elastic Compute Cloud - Compute"]}
     })
-    # FINDING 1: scope the per-region CE query to THIS region. Without it,
+    # Scope the per-region CE query to THIS region. Without it,
     # every region iteration fetched the identical account-wide EC2 usage-type
     # totals and re-attributed them, counting the same cost once per region.
     filt_parts.append({
@@ -186,7 +186,7 @@ def _attribute_from_usage_type(
     if not ce_by_key and non_instance_cost <= 0.001:
         return []
 
-    # FINDING 21: reuse a shared per-region scan when provided; otherwise do our own.
+    # Reuse a shared per-region scan when provided; otherwise do our own.
     if instances is None:
         instances = describe_instances_raw(session, region)
     inst_by_key: dict = defaultdict(list)
@@ -325,11 +325,11 @@ def _attribute_from_usage_type(
 def live_instance_names(
     session: boto3.Session,
     region: str,
-    instances: Optional[list[dict]] = None,
+    instances: list[dict] | None = None,
 ) -> dict[str, str]:
     """Fast id→name lookup for EBS attached-instance labels.
 
-    FINDING 21: pass ``instances`` (a shared ``describe_instances_raw`` result)
+    Pass ``instances`` (a shared ``describe_instances_raw`` result)
     to avoid a second ``describe_instances`` scan for a region EC2 already read.
     """
     if instances is None:

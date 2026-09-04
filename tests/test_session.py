@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from costsight.aws.session import (
     ProfileBundle,
     accessible_regions,
@@ -16,7 +14,6 @@ from costsight.aws.session import (
     load_profile_bundle,
     make_session,
 )
-
 
 # ---------------------------------------------------------------------------
 # make_session

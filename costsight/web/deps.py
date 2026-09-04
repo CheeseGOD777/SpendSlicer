@@ -11,16 +11,18 @@ import logging
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Optional
-
-log = logging.getLogger(__name__)
+from typing import Any
 
 import boto3
 from fastapi import HTTPException, Query
 
 from costsight.aws.cost_explorer import CostExplorerClient
 from costsight.aws.session import list_profiles, make_session
+from costsight.web.sqlite_cache import SqliteCache
+
+log = logging.getLogger(__name__)
 
 # Defaults favor lower AWS API spend during normal dashboard use.
 # Override with env vars for faster/near-real-time setups.
@@ -29,16 +31,14 @@ _SWR_WINDOW = float(os.environ.get("COSTSIGHT_CACHE_SWR_SECONDS", "21600"))  # +
 _CACHE_DIR = Path(os.environ.get("COSTSIGHT_CACHE_DIR", Path.home() / ".cache" / "costsight"))
 _CACHE_DB = _CACHE_DIR / "cache.db"
 
-from costsight.web.sqlite_cache import SqliteCache  # noqa: E402
-
 _cache = SqliteCache(_CACHE_DB)
 
 
-def cache_get(key: str) -> Optional[Any]:
+def cache_get(key: str) -> Any | None:
     return _cache.get(key)
 
 
-def cache_get_swr(key: str) -> tuple[Optional[Any], bool]:
+def cache_get_swr(key: str) -> tuple[Any | None, bool]:
     """Return ``(value, should_refresh)`` using stale-while-revalidate.
 
     - Fresh (age < TTL):     (value, False) — no refresh needed.
@@ -67,12 +67,10 @@ def cache_bust(prefix: str = "") -> int:
 # ---------------------------------------------------------------------------
 # Background-refresh thread pool — for stale-while-revalidate handlers
 # ---------------------------------------------------------------------------
-from concurrent.futures import ThreadPoolExecutor  # noqa: E402
-
 _refresh_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="costsight-refresh")
 # Separate pool for HEAVY producers (full resource enumeration across regions —
 # minutes per key). Keeping them off _refresh_pool stops a few heavy refreshes
-# from monopolising all workers and starving cheap CE refreshes (FINDING 14).
+# from monopolising all workers and starving cheap CE refreshes.
 _heavy_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="costsight-refresh-heavy")
 _refreshing: set[str] = set()
 _refresh_lock = threading.Lock()
@@ -114,7 +112,7 @@ def schedule_refresh(key: str, producer, heavy: bool = False) -> None:
         global _inflight_refreshes
         # Give the background producer its OWN CE counter rather than mutating
         # the triggering request's counter (which the shallow context copy
-        # otherwise shares) — see middleware.set_new_counter (FINDING 40).
+        # otherwise shares) — see middleware.set_new_counter.
         try:
             from costsight.web.middleware import set_new_counter
             set_new_counter()
@@ -142,7 +140,7 @@ def schedule_refresh(key: str, producer, heavy: bool = False) -> None:
         # submit() can raise (e.g. RuntimeError if the pool is shutting down).
         # Without this guard the _refreshing entry and in-flight slot would leak
         # forever, permanently dropping all future refreshes for this key
-        # (FINDING 41).
+        #.
         log.warning("schedule_refresh: submit failed for key=%s: %s", key, type(exc).__name__)
         with _refresh_lock:
             _refreshing.discard(key)
@@ -154,7 +152,7 @@ def schedule_refresh(key: str, producer, heavy: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 def get_session(profile: str = Query("default")) -> boto3.Session:
-    # FINDING 13: the profile name selects which local AWS credentials (and,
+    # The profile name selects which local AWS credentials (and,
     # via credential_process, which command) are used. Never pass an arbitrary
     # client-supplied value to boto3 — validate it against the known profiles
     # first. "default" is always permitted.
@@ -164,7 +162,7 @@ def get_session(profile: str = Query("default")) -> boto3.Session:
     try:
         return make_session(profile=p)
     except Exception as exc:
-        # FINDING (audit): do NOT silently fall back to boto3.Session() here.
+        # Do NOT silently fall back to boto3.Session() here.
         # The default session may resolve to a *different* AWS account, and its
         # costs would then be cached under the requested profile's cache keys —
         # serving one account's numbers under another's name. Fail loudly so the
@@ -324,7 +322,11 @@ def get_cur_store():
     try:
         from costsight.cur.schema import (
             connect as _cur_connect,
+        )
+        from costsight.cur.schema import (
             ensure_line_items_view as _cur_ensure_view,
+        )
+        from costsight.cur.schema import (
             get_parquet_glob as _cur_get_glob,
         )
         from costsight.cur.store import CurStore

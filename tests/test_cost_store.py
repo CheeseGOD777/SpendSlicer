@@ -108,6 +108,7 @@ def test_store_cache_key_namespaces_account():
 
 def test_to_grouped_cost_list_preserves_order_and_totals():
     from datetime import datetime, timezone
+
     from costsight.core.provenance import Provenance
     from costsight.core.types import CostMetric, TimeWindow
     m = DailyServiceMatrix.from_ce(_fake_ce_response())

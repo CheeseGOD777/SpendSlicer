@@ -8,9 +8,19 @@ mixing local tz and UTC; these helpers eliminate that class of bug.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from costsight.core.types import TimeWindow
+
+
+def utcnow_naive() -> datetime:
+    """Current UTC time as a *naive* datetime.
+
+    Replaces ``datetime.utcnow()``, which is deprecated in 3.12+. The naive
+    (tzinfo-less) form is deliberate: the resource attribution math normalises
+    every bound to naive UTC before subtracting, so returning an aware value
+    here would raise "can't subtract offset-naive and offset-aware datetimes".
+    """
+    return datetime.now(tz=timezone.utc).replace(tzinfo=None)
 
 
 def _utc_today_midnight() -> datetime:
@@ -47,7 +57,7 @@ def month_before_last() -> TimeWindow:
     return TimeWindow(start=prev_first, end=lm.start)
 
 
-def remainder_of_current_month() -> Optional[TimeWindow]:
+def remainder_of_current_month() -> TimeWindow | None:
     """Tomorrow's UTC midnight → 1st of next month. For CE forecast calls.
 
     Starts *tomorrow*, not today: month-to-date actuals already include

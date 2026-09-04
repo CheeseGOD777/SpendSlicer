@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
-from typing import Union
 
 from .base import ExportResult
 
@@ -41,7 +40,7 @@ def _flatten(row: dict, prefix: str = "") -> dict:
 
 def export_csv(
     rows: list[dict],
-    path: Union[str, Path],
+    path: str | Path,
     flatten: bool = True,
 ) -> ExportResult:
     """Write ``rows`` to a CSV file.

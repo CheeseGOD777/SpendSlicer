@@ -1,6 +1,6 @@
 """AWS session factory — multi-profile, multi-region, parallel fan-out.
 
-Phase 2 additions:
+Exports:
   - ``accessible_regions(session)`` — EC2 describe_regions
   - ``account_alias_for(session)`` — IAM list_account_aliases
   - ``ProfileBundle`` — one fully-resolved profile: session + account + regions
@@ -14,10 +14,11 @@ from __future__ import annotations
 import configparser
 import logging
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, TypeVar
+from typing import TypeVar
 
 import boto3
 from botocore.exceptions import ClientError
@@ -52,8 +53,8 @@ class ProfileBundle:
 
     profile: str
     session: boto3.Session
-    account_id: Optional[str] = None
-    account_alias: Optional[str] = None
+    account_id: str | None = None
+    account_alias: str | None = None
     regions: list[str] = field(default_factory=list)
 
     def display_name(self) -> str:
@@ -72,7 +73,7 @@ class ProfileBundle:
 # Session factory
 # ---------------------------------------------------------------------------
 
-def make_session(profile: Optional[str] = None, region: Optional[str] = None) -> boto3.Session:
+def make_session(profile: str | None = None, region: str | None = None) -> boto3.Session:
     """Build a boto3 session, preferring an explicit profile, else AWS_PROFILE env."""
     profile = profile or os.environ.get("AWS_PROFILE")
     kw: dict = {}
@@ -116,7 +117,7 @@ def list_profiles() -> list[str]:
 # Account identity helpers
 # ---------------------------------------------------------------------------
 
-def account_id_for(session: boto3.Session) -> Optional[str]:
+def account_id_for(session: boto3.Session) -> str | None:
     """Return the 12-digit AWS account id, or None if STS is unavailable."""
     try:
         return session.client("sts").get_caller_identity()["Account"]
@@ -124,7 +125,7 @@ def account_id_for(session: boto3.Session) -> Optional[str]:
         return None
 
 
-def account_alias_for(session: boto3.Session) -> Optional[str]:
+def account_alias_for(session: boto3.Session) -> str | None:
     """Return the first IAM account alias, or None if none configured / no permission."""
     try:
         resp = session.client("iam").list_account_aliases()
@@ -160,8 +161,8 @@ def accessible_regions(session: boto3.Session) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def load_profile_bundle(
-    profile: Optional[str] = None,
-    regions: Optional[list[str]] = None,
+    profile: str | None = None,
+    regions: list[str] | None = None,
 ) -> ProfileBundle:
     """Build a fully-resolved ProfileBundle for one profile.
 
@@ -183,7 +184,7 @@ def load_profile_bundle(
 
 
 def all_profile_bundles(
-    regions: Optional[list[str]] = None,
+    regions: list[str] | None = None,
     max_workers: int = 8,
 ) -> list[ProfileBundle]:
     """Load all local profiles in parallel, returning one ProfileBundle each.

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -50,13 +49,13 @@ class CostFilterSpec:
     usage_type_substrings : optional substring match list on USAGE_TYPE.
     """
 
-    service: Optional[str] = None
-    tags: Optional[tuple[tuple[str, str], ...]] = None
-    linked_accounts: Optional[tuple[str, ...]] = None
-    excluded_record_types: Optional[tuple[str, ...]] = None
-    included_record_types: Optional[tuple[str, ...]] = None
-    usage_type_substrings: Optional[tuple[str, ...]] = None
-    region: Optional[str] = None
+    service: str | None = None
+    tags: tuple[tuple[str, str], ...] | None = None
+    linked_accounts: tuple[str, ...] | None = None
+    excluded_record_types: tuple[str, ...] | None = None
+    included_record_types: tuple[str, ...] | None = None
+    usage_type_substrings: tuple[str, ...] | None = None
+    region: str | None = None
 
     def effective_record_types(self) -> tuple[str, ...]:
         """What we actually kept — the positive set used in provenance."""
@@ -86,7 +85,7 @@ class CostFilterSpec:
         return "; ".join(parts) if parts else "no filters"
 
 
-def build_ce_filter(spec: CostFilterSpec) -> Optional[dict]:
+def build_ce_filter(spec: CostFilterSpec) -> dict | None:
     """Compose a boto3-compatible CE Filter from a CostFilterSpec.
 
     Returns ``None`` if no filter should be applied. An Empty return

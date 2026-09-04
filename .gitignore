@@ -1,24 +1,47 @@
+# ─── Python ─────────────────────────────────────────────────────────────
 *.pyc
 __pycache__/
+*.egg-info/
 .pytest_cache/
-node_modules/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
 venv/
 .venv/
-*.egg-info/
+
+# ─── Node ───────────────────────────────────────────────────────────────
+node_modules/
+# The built dashboard is committed at costsight/web/static so that neither
+# `pip install costsight` nor ./run.sh needs a Node toolchain. Vite no longer
+# writes to frontend/dist; ignore it so stale local copies never get staged.
+frontend/dist/
+
+# ─── Desktop build output ───────────────────────────────────────────────
+desktop/build/
+desktop/dist/
+*.spec.bak
+
+# ─── Local runtime state ────────────────────────────────────────────────
 exports/
 .cache/
-.DS_Store
 *.duckdb
 *.duckdb.wal
 
-# personal data / local-only working files — never publish
-csv+comparsion/
-aws-other-tools/
-COST_EXPLORER_AUDIT.md
-COST_EXPLORER_FIXES.md
-docs/IMPLEMENTATION.md
-docs/superpowers/
+# ─── Terraform ──────────────────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
 
-# AI-session tooling state
+# ─── OS / editor ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ─── Agent / assistant session state ────────────────────────────────────
 .claude/
 .superpowers/

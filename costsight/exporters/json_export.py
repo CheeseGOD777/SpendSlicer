@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Union
 
 from .base import ExportResult
 
 
 def export_json(
-    data: Union[dict, list],
-    path: Union[str, Path],
+    data: dict | list,
+    path: str | Path,
     indent: int = 2,
 ) -> ExportResult:
     """Write ``data`` as pretty-printed JSON to ``path``.
@@ -33,6 +32,6 @@ def export_json(
         return ExportResult(format="json", destination=str(path), success=False, error=str(exc))
 
 
-def to_json_string(data: Union[dict, list], indent: int = 2) -> str:
+def to_json_string(data: dict | list, indent: int = 2) -> str:
     """Serialise to a JSON string (for API responses, Slack payloads, etc.)."""
     return json.dumps(data, indent=indent, default=str)

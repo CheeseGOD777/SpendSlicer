@@ -9,12 +9,13 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from costsight.core import pricing
+
 from .base import AttributedResource, clamp_window, hours_between, tags_to_dict
 
-# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+# Adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
-# FINDING 19: bound how many target groups we inspect for health to keep the
+# Bound how many target groups we inspect for health to keep the
 # describe_target_health fan-out from being unbounded on large accounts.
 _MAX_TARGET_GROUPS = 200
 
@@ -43,7 +44,7 @@ def attribute_elb(
                     tag_map[td["ResourceArn"]] = tags_to_dict(td.get("Tags"))
 
         # Healthy target count per LB, to flag "no targets" waste.
-        # FINDING 19: call describe_target_health AT MOST ONCE per target group
+        # Call describe_target_health AT MOST ONCE per target group
         # (previously it was nested inside the per-LB-ARN loop, so a TG attached
         # to N load balancers triggered N identical health calls). Compute the
         # healthy count once and fan it out to each associated LB. Cap the number

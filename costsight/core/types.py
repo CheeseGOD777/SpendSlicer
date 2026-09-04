@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Optional
 
 
 class CostMetric(str, Enum):
@@ -84,5 +83,5 @@ class AccountRef:
 
     profile: str
     account_id: str
-    alias: Optional[str] = None
+    alias: str | None = None
     regions: list[str] = field(default_factory=list)

@@ -20,7 +20,7 @@ from starlette.requests import Request
 class CECallCounter:
     calls: int = 0
     records: int = 0
-    # FINDING 42: workers in the per-request fan-out share this one counter
+    # Workers in the per-request fan-out share this one counter
     # (the context copy is shallow) and call add() concurrently — `+=` is a
     # non-atomic read-modify-write, so increments were lost. Guard with a lock;
     # it is uncontended in the common single-threaded case.

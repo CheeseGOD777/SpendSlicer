@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
+from costsight.web.assets import frontend_dist
 from costsight.web.context import base_ctx
 
 router = APIRouter()
-_FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+
+_BUILD_HINT = (
+    "Dashboard bundle not found. Build it with: cd frontend && npm install && npm run build"
+)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -38,23 +40,21 @@ def ui_context(profile: str = Query("default"), period: str = Query("mtd")):
 
 @router.get("/app", response_class=HTMLResponse)
 def react_app_index():
-    index_path = _FRONTEND_DIST / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    return HTMLResponse(
-        "Frontend build not found. Run: cd frontend && npm run build",
-        status_code=404,
-    )
+    dist = frontend_dist()
+    if dist is None:
+        return HTMLResponse(_BUILD_HINT, status_code=404)
+    return FileResponse(dist / "index.html")
 
 
 @router.get("/app/{asset_path:path}", response_class=HTMLResponse)
 def react_app_assets(asset_path: str):
-    if not _FRONTEND_DIST.exists():
-        return HTMLResponse(
-            "Frontend build not found. Run: cd frontend && npm run build",
-            status_code=404,
-        )
-    target = (_FRONTEND_DIST / asset_path).resolve()
-    if target.is_file() and target.is_relative_to(_FRONTEND_DIST.resolve()):
+    dist = frontend_dist()
+    if dist is None:
+        return HTMLResponse(_BUILD_HINT, status_code=404)
+    root = dist.resolve()
+    target = (root / asset_path).resolve()
+    # Containment check keeps ../ traversal out; unknown in-app routes fall
+    # through to index.html so client-side routing keeps working on reload.
+    if target.is_file() and target.is_relative_to(root):
         return FileResponse(target)
-    return FileResponse(_FRONTEND_DIST / "index.html")
+    return FileResponse(root / "index.html")

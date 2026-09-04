@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+
+from costsight.core.time_windows import utcnow_naive
 
 
 @dataclass
@@ -34,7 +35,7 @@ class AttributedResource:
     cost_usd: float
     hours: float
     region: str
-    waste_reason: Optional[str] = None
+    waste_reason: str | None = None
     attributes: dict = field(default_factory=dict)
     tags: dict = field(default_factory=dict)
 
@@ -78,7 +79,7 @@ def hours_between(start: datetime, end: datetime) -> float:
 
 
 def clamp_window(
-    resource_start: Optional[datetime],
+    resource_start: datetime | None,
     window_start: datetime,
     window_end: datetime,
 ) -> tuple[datetime, datetime]:
@@ -90,7 +91,7 @@ def clamp_window(
     we = _to_naive_utc(window_end)
     rs = _to_naive_utc(resource_start) if resource_start else ws
     eff_start = max(rs, ws)
-    eff_end = min(datetime.utcnow(), we)
+    eff_end = min(utcnow_naive(), we)
     return eff_start, eff_end
 
 

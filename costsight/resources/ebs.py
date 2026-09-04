@@ -8,9 +8,10 @@ import boto3
 from botocore.config import Config
 
 from costsight.core import pricing
+
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
 
-# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+# Adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 

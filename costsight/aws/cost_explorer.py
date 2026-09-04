@@ -23,13 +23,11 @@ Design rules
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from datetime import datetime, timezone
 
 import boto3
-
-log = logging.getLogger(__name__)
 
 from costsight.core.filters import (
     CostFilterSpec,
@@ -38,6 +36,8 @@ from costsight.core.filters import (
 )
 from costsight.core.provenance import CostValue, Provenance
 from costsight.core.types import CostMetric, Granularity, TimeWindow
+
+log = logging.getLogger(__name__)
 
 # CE is a global service but requires a region; us-east-1 is canonical.
 _CE_REGION = "us-east-1"
@@ -68,7 +68,7 @@ class CostExplorerClient:
 
     Construction is cheap; instantiate per-session. Instances are not
     thread-safe (they reuse a single boto3 client); create one per
-    worker thread in Phase 2's fan-out.
+    worker thread when fanning out.
     """
 
     def __init__(self, session: boto3.Session, ce_client=None) -> None:
@@ -83,7 +83,7 @@ class CostExplorerClient:
         self,
         window: TimeWindow,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
     ) -> CostValue:
         """Single scalar total for the window — e.g. "month-to-date spend"."""
         spec = spec or console_default()
@@ -136,7 +136,7 @@ class CostExplorerClient:
         self,
         window: TimeWindow,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
         granularity: Granularity = Granularity.MONTHLY,
     ) -> list[GroupedCost]:
         """Service-level breakdown. One GroupedCost per service."""
@@ -152,7 +152,7 @@ class CostExplorerClient:
         self,
         window: TimeWindow,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
         granularity: Granularity = Granularity.MONTHLY,
     ) -> list[GroupedCost]:
         """Usage-type granularity — one level deeper than service."""
@@ -168,7 +168,7 @@ class CostExplorerClient:
         self,
         window: TimeWindow,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
         granularity: Granularity = Granularity.MONTHLY,
     ) -> list[GroupedCost]:
         """Two-dim grouping: SERVICE × USAGE_TYPE. One CE call covers
@@ -188,7 +188,7 @@ class CostExplorerClient:
         window: TimeWindow,
         tag_key: str,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
         granularity: Granularity = Granularity.MONTHLY,
     ) -> list[GroupedCost]:
         """Group by a user-defined cost-allocation tag."""
@@ -204,7 +204,7 @@ class CostExplorerClient:
         self,
         window: TimeWindow,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
         granularity: Granularity = Granularity.MONTHLY,
     ) -> list[GroupedCost]:
         """For management accounts: cost per linked (member) account."""
@@ -221,7 +221,7 @@ class CostExplorerClient:
         window: TimeWindow,
         granularity: Granularity = Granularity.MONTHLY,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
+        spec: CostFilterSpec | None = None,
     ) -> list[TimeSeriesPoint]:
         """Time-series totals across the window (one point per bucket)."""
         spec = spec or console_default()
@@ -272,8 +272,8 @@ class CostExplorerClient:
         self,
         window: TimeWindow,
         metric: CostMetric = CostMetric.UNBLENDED,
-        spec: Optional[CostFilterSpec] = None,
-    ) -> Optional[CostValue]:
+        spec: CostFilterSpec | None = None,
+    ) -> CostValue | None:
         """Forward-looking projection from CE's forecast endpoint.
 
         Returns None if the window is too short or CE declines to forecast.
@@ -403,7 +403,7 @@ class CostExplorerClient:
             kwargs["Filter"] = built
 
         all_periods: list[dict] = []
-        token: Optional[str] = None
+        token: str | None = None
         while True:
             call_kwargs = dict(kwargs)
             if token:

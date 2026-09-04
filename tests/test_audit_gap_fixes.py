@@ -11,7 +11,6 @@ import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # #13 — get_session must validate the profile against the local profile list
 # ---------------------------------------------------------------------------

@@ -4,25 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "costsight"
-version = "0.2.0"
-description = "Self-hosted unified FinOps tool for AWS — cost visibility, audit, and reporting with zero data custody."
+dynamic = ["version"]
+description = "Self-hosted AWS cost visibility and waste audit — runs on your machine, against your own AWS credentials."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "costsight contributors" }]
-keywords = ["aws", "cost", "finops", "billing", "audit", "cloud"]
+authors = [{ name = "CostSight contributors" }]
+keywords = ["aws", "cost", "finops", "billing", "audit", "cloud", "devops"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Monitoring",
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
@@ -42,20 +45,31 @@ web = [
     "python-multipart>=0.0.9",
 ]
 exporters = [
-    "reportlab>=4.1",
     "slack-sdk>=3.27",
 ]
 cur = [
     "duckdb>=1.0",
     "pyarrow>=15.0",
 ]
+# Native desktop shell (the .dmg / .exe builds). pywebview renders the
+# dashboard in the OS webview: WebKit on macOS, WebView2 on Windows.
+desktop = [
+    "pywebview>=5.1",
+    "pyobjc-core>=10.1; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10.1; sys_platform == 'darwin'",
+    "pyobjc-framework-WebKit>=10.1; sys_platform == 'darwin'",
+    "pythonnet>=3.0; sys_platform == 'win32'",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "httpx2>=0.1",  # required by starlette's TestClient
+    "httpx2>=2.12",  # starlette 1.6+ TestClient wants httpx2, not httpx
     "moto[ec2,rds,elbv2,sts,organizations]>=5.0",
     "mypy>=1.10",
     "ruff>=0.4",
+]
+build = [
+    "pyinstaller>=6.6",
 ]
 all = [
     "costsight[cli,web,exporters,cur]",
@@ -63,31 +77,53 @@ all = [
 
 [project.scripts]
 costsight = "costsight.cli:main"
+costsight-web = "costsight.web.app:main"
+
+[project.gui-scripts]
+costsight-desktop = "costsight.desktop:main"
 
 [project.urls]
-Homepage = "https://github.com/TirthTeraiya/costsight"
-Issues = "https://github.com/TirthTeraiya/costsight/issues"
+Homepage = "https://github.com/CheeseGOD777/costsight"
+Repository = "https://github.com/CheeseGOD777/costsight"
+Issues = "https://github.com/CheeseGOD777/costsight/issues"
+Changelog = "https://github.com/CheeseGOD777/costsight/blob/main/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "costsight.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["costsight*"]
 
 [tool.setuptools.package-data]
-costsight = []
+# The prebuilt React bundle ships inside the wheel so `pip install costsight`
+# serves the dashboard without needing Node.
+costsight = ["web/static/**/*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
+extend-exclude = ["frontend/dist", "venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
+ignore = [
+    "E501",    # line length is enforced by the formatter, not the linter
+    "B008",    # FastAPI's Depends()/Query() in defaults is the documented idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests intentionally import inside functions to keep monkeypatch scopes tight.
+"tests/*" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+filterwarnings = [
+    "error::DeprecationWarning:costsight.*",
+]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict_optional = true
 warn_unused_ignores = true

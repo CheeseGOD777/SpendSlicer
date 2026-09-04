@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from .base import ExportResult
 from .csv_export import export_csv
@@ -27,14 +26,14 @@ class ScheduledExportConfig:
     output_dir: str = "./exports"
     formats: list[str] = field(default_factory=lambda: ["json", "csv"])
     # Optional S3 upload after local write
-    s3_bucket: Optional[str] = None
+    s3_bucket: str | None = None
     s3_prefix: str = "aws-cost-exports/"
     # Optional Slack notification
-    slack_token: Optional[str] = None
-    slack_channel: Optional[str] = None
+    slack_token: str | None = None
+    slack_channel: str | None = None
     # Optional email
-    ses_from: Optional[str] = None
-    ses_to: Optional[list[str]] = None
+    ses_from: str | None = None
+    ses_to: list[str] | None = None
 
 
 def run_scheduled_export(

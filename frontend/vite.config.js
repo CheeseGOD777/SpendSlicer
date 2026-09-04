@@ -13,6 +13,10 @@ export default defineConfig({
     },
   },
   build: {
+    // Build straight into the Python package so one path serves the bundle in
+    // a source checkout, an installed wheel, and a frozen desktop build.
+    outDir: "../costsight/web/static",
+    emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks: {

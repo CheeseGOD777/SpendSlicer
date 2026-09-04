@@ -6,7 +6,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from costsight.cur.schema import connect, set_parquet_glob, ensure_line_items_view
+from costsight.cur.schema import connect, ensure_line_items_view, set_parquet_glob
 from costsight.cur.store import CurStore
 
 

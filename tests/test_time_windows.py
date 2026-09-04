@@ -64,6 +64,7 @@ def test_trailing_months_rejects_zero():
 
 def _freeze_today(monkeypatch, y, m, d):
     from datetime import datetime, timezone
+
     from costsight.core import time_windows as tw
     monkeypatch.setattr(
         tw, "_utc_today_midnight",
@@ -93,6 +94,7 @@ def test_remainder_is_none_on_dec_31(monkeypatch):
 
 def test_remainder_mid_month_covers_tomorrow_to_month_end(monkeypatch):
     from datetime import datetime, timezone
+
     from costsight.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 7, 7)
     w = tw.remainder_of_current_month()
@@ -102,6 +104,7 @@ def test_remainder_mid_month_covers_tomorrow_to_month_end(monkeypatch):
 
 def test_remainder_mid_december_stays_in_december(monkeypatch):
     from datetime import datetime, timezone
+
     from costsight.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 12, 15)
     w = tw.remainder_of_current_month()

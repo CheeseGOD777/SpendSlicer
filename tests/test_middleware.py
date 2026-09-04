@@ -34,6 +34,7 @@ def test_middleware_writes_headers():
     """End-to-end: a route that increments the counter produces the expected headers."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from costsight.web.middleware import CECountingMiddleware, get_current_counter
 
     app = FastAPI()
@@ -55,6 +56,7 @@ def test_middleware_writes_headers():
 def test_middleware_isolates_counters_between_requests():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from costsight.web.middleware import CECountingMiddleware, get_current_counter
 
     app = FastAPI()

@@ -17,7 +17,7 @@ def test_core_imports():
 
 
 def test_aws_layer_imports():
-    from costsight.aws import cost_explorer, session
+    from costsight.aws import session
     from costsight.resources.ec2 import attribute_ec2, attribute_ec2_account
     assert callable(session.make_session)
     assert callable(session.list_profiles)
@@ -52,11 +52,12 @@ def test_time_window_validation():
 
 
 def test_merge_ec2_groups():
+    from datetime import datetime, timedelta, timezone
+
     from costsight.aws.cost_explorer import GroupedCost
     from costsight.core.provenance import CostValue, Provenance
     from costsight.core.service_groups import merge_ec2_service_groups
     from costsight.core.types import CostMetric, TimeWindow
-    from datetime import datetime, timedelta, timezone
 
     now = datetime.now(tz=timezone.utc)
     window = TimeWindow(start=now - timedelta(days=30), end=now)

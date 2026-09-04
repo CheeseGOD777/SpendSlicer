@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Union
 
 from .base import ExportResult
 
@@ -24,7 +23,7 @@ def _paths() -> tuple[Path, Path]:
 
 def export_pdf(
     report: dict,
-    path: Union[str, Path],
+    path: str | Path,
 ) -> ExportResult:
     """Generate branded PDF by rendering report HTML with Puppeteer."""
     dest = Path(path).resolve()

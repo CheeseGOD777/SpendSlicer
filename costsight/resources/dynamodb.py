@@ -8,9 +8,8 @@ spend in service-level aggregate drift to avoid false positives.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import logging
+from datetime import datetime
 
 import boto3
 from botocore.config import Config
@@ -20,10 +19,10 @@ from .base import AttributedResource, tags_to_dict
 
 log = logging.getLogger(__name__)
 
-# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+# Adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
-# FINDING 23: bound the describe_table fan-out on large accounts.
+# Bound the describe_table fan-out on large accounts.
 _MAX_DESCRIBE_TABLES = 200
 
 
@@ -44,7 +43,7 @@ def attribute_dynamodb(
     if not tables:
         return []
 
-    # FINDING 23: cap the describe_table loop so an account with thousands of
+    # Cap the describe_table loop so an account with thousands of
     # tables doesn't trigger an unbounded serial N+1 fan-out.
     total_table_count = len(tables)
     if len(tables) > _MAX_DESCRIBE_TABLES:
@@ -100,7 +99,7 @@ def attribute_dynamodb(
         # avoid inventing per-table cost splits.
         return []
 
-    # FINDING (audit): when tables were truncated to the describe cap, the
+    # When tables were truncated to the describe cap, the
     # described tables must only absorb their *coverage* fraction of the CE
     # total — otherwise the dropped tables' cost (which list_tables ordered
     # lexicographically, not by spend) silently lands on the survivors. Assign
@@ -127,7 +126,7 @@ def attribute_dynamodb(
             share = 0.0
         cost = ce_service_total_usd * share * coverage
 
-        # FINDING 23: only fetch tags for tables we actually attribute cost to,
+        # Only fetch tags for tables we actually attribute cost to,
         # and only when we're already doing the CW-weighted (non-fast) path —
         # mirrors the Lambda gating to bound list_tags_of_resource fan-out.
         tags: dict = {}

@@ -5,8 +5,6 @@ Requires ``slack_sdk`` (``pip install costsight[exporters]``).
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .base import ExportResult
 
 
@@ -20,7 +18,7 @@ def _check_slack_sdk() -> None:
         ) from None
 
 
-def _fmt_currency(v: Optional[float]) -> str:
+def _fmt_currency(v: float | None) -> str:
     return f"${v:,.2f}" if v is not None else "N/A"
 
 
@@ -123,7 +121,6 @@ def export_slack(
     """
     _check_slack_sdk()
     from slack_sdk import WebClient
-    from slack_sdk.errors import SlackApiError
 
     try:
         client = WebClient(token=token)

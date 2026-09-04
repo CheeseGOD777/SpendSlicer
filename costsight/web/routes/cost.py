@@ -29,9 +29,10 @@ from costsight.web.deps import (
     is_valid_period,
     period_to_window,
 )
+
 router = APIRouter(prefix="/api/cost")
 
-# FINDINGS 47/50: one shared, long-lived pool for the per-request fan-out
+# One shared, long-lived pool for the per-request fan-out
 # instead of constructing (and tearing down) a ThreadPoolExecutor per request.
 # Persistent workers mean the per-thread SQLite connections (and their PRAGMAs)
 # are actually reused rather than opened-and-abandoned on every request.
@@ -389,7 +390,7 @@ def _bucket_for_usage_type(usage_type: str) -> str:
     return "other"
 
 
-# FINDING 41: USAGE_TYPE cardinality is regional (e.g. "USE1-BoxUsage:m5.large",
+# USAGE_TYPE cardinality is regional (e.g. "USE1-BoxUsage:m5.large",
 # "APN1-BoxUsage:m5.large", ...), so a single service on a many-region account can
 # carry thousands of distinct types. Cap the serialized detail list to the top-N by
 # cost and roll the long tail into one "other" row so the cached JSON stays bounded

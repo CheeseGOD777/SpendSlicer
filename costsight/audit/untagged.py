@@ -8,7 +8,6 @@ build "you're flying blind on attribution" findings.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -22,7 +21,7 @@ class UntaggedResource:
     region: str
     missing_tags: list[str]
     existing_tags: dict = field(default_factory=dict)
-    arn: Optional[str] = None
+    arn: str | None = None
 
     def to_dict(self) -> dict:
         return {

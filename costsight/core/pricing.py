@@ -1,20 +1,18 @@
 """AWS Pricing API wrapper with in-memory TTL cache and regional fallback table.
 
-Migrated verbatim from the legacy top-level ``pricing.py``. Behavior is
-unchanged in Phase 1. The ap-south-1-only fallback table will be expanded
-to multi-region in Phase 2.
-
 The Pricing API is only available in us-east-1 / ap-south-1. We call
 us-east-1 for stability. Rates cached 24h. If the API is unreachable or
 returns nothing, fall back to a hard-coded on-demand rate table.
+
+The fallback table currently only carries ap-south-1 rates; other regions
+fall through to the API. Contributions adding more regions are welcome.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import time
 from threading import Lock
-from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -83,26 +81,26 @@ FALLBACK_RATES: dict = {
 }
 
 
-def _cache_get(key: str) -> Optional[float]:
+def _cache_get(key: str) -> float | None:
     with _LOCK:
         entry = _CACHE.get(key)
         if not entry:
             return None
-        if datetime.utcnow().timestamp() - entry["t"] > _TTL_SECONDS:
+        if time.monotonic() - entry["t"] > _TTL_SECONDS:
             return None
         return entry["v"]
 
 
 def _cache_set(key: str, value: float) -> None:
     with _LOCK:
-        _CACHE[key] = {"v": value, "t": datetime.utcnow().timestamp()}
+        _CACHE[key] = {"v": value, "t": time.monotonic()}
 
 
 def _pricing_client(session: boto3.Session):
     return session.client("pricing", region_name="us-east-1")
 
 
-def _fetch_from_api(session: boto3.Session, service_code: str, filters: list[dict]) -> Optional[float]:
+def _fetch_from_api(session: boto3.Session, service_code: str, filters: list[dict]) -> float | None:
     try:
         client = _pricing_client(session)
         resp = client.get_products(
@@ -183,7 +181,7 @@ _RDS_STORAGE_TO_PRICING = {
 }
 
 
-def _rds_engine_to_pricing(engine: str) -> Optional[str]:
+def _rds_engine_to_pricing(engine: str) -> str | None:
     e = (engine or "").lower()
     if e in _RDS_ENGINE_TO_PRICING:
         return _RDS_ENGINE_TO_PRICING[e]

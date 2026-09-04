@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import logging
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
+from typing import Any
 
 import boto3
-
-log = logging.getLogger(__name__)
 
 from costsight.aws.cost_explorer import CostExplorerClient
 from costsight.aws.session import accessible_regions
@@ -25,15 +25,17 @@ from .eip import attribute_eip
 from .elb import attribute_elb
 from .lambda_fn import attribute_lambda
 from .rds import attribute_rds
-from .s3 import attribute_s3, attribute_s3_all
+from .s3 import attribute_s3_all
 
-# FINDINGS 17 & 34: a single shared bounded executor caps total threads
+log = logging.getLogger(__name__)
+
+# A single shared bounded executor caps total threads
 # regardless of how many (service x region) work units we generate. Previously
 # an outer pool (up to 16) submitted per-service jobs that each opened their
 # OWN inner pool (up to 12), multiplying into ~70+ concurrent threads.
 _MAX_WORKERS = 16
 
-# FINDING 18: rescaling per-resource costs up to the CE total is only safe when
+# Rescaling per-resource costs up to the CE total is only safe when
 # the raw attributed sum is in the same ballpark as the CE total. A tiny raw_sum
 # yields a huge factor that inflates every row. Only rescale inside this band.
 _RESCALE_MIN_FACTOR = 0.2
@@ -94,13 +96,13 @@ def _rescale_rows(
     what: str,
     incomplete: bool = False,
 ) -> None:
-    """Scale per-resource costs up/down to match a CE total — FINDING 18.
+    """Scale per-resource costs up/down to match a CE total.
 
     Clamp the factor to a sane band so a tiny raw_sum (near-zero) can't blow up
     into a huge multiplier that inflates every row. Outside the band we leave the
     raw attributed costs untouched and log a drift warning.
 
-    FINDING 24: when this service's attribution was ``incomplete`` (a region or
+    When this service's attribution was ``incomplete`` (a region or
     work unit failed after retries), do NOT rescale — scaling partial rows up to
     the full CE total would silently misattribute the missing regions' cost onto
     the rows we did manage to fetch.
@@ -127,7 +129,7 @@ def _rescale_rows(
         return
     for r in rows:
         r.cost_usd *= factor
-        # FINDING (audit): the "EC2 - Other" pool EBS/EIP rescale to also covers
+        # The "EC2 - Other" pool EBS/EIP rescale to also covers
         # NAT/data-transfer/snapshots, so a factor far from 1.0 means volume
         # costs absorbed non-volume spend. Record it so the number is auditable
         # rather than a silent multiplier.
@@ -205,7 +207,7 @@ def _reconcile_pools(
     buckets: dict[str, list[AttributedResource]],
     ce_total_by_service: dict[str, float],
     failed_services: set[str],
-    want: Optional[set[str]],
+    want: set[str] | None,
     display_region: str,
     lambda_ddb_region_scoped: bool = False,
 ) -> list[AttributedResource]:
@@ -218,13 +220,13 @@ def _reconcile_pools(
     under-priced every address. To avoid double counting, the VPC aggregate
     row is reduced by whatever the EIP rows already attribute.
     """
-    # FINDING 18: EBS rescaled to the shared "EC2 - Other" CE pool, clamped.
+    # EBS rescaled to the shared "EC2 - Other" CE pool, clamped.
     _rescale_rows(
         buckets.get("EBS", []), ce_total_by_service.get("EC2 - Other", 0.0),
         "EBS", incomplete="EBS" in failed_services,
     )
 
-    # FINDING 18: RDS / ELB rescaled to their own CE totals, clamped.
+    # RDS / ELB rescaled to their own CE totals, clamped.
     for label, ce_name in [
         ("RDS", "Amazon Relational Database Service"),
         ("ELB", "Amazon Elastic Load Balancing"),
@@ -244,7 +246,7 @@ def _reconcile_pools(
     # total here. A factor of ~1/region_count is expected and legitimate, so we
     # normalise directly rather than via _rescale_rows' tiny-raw-sum clamp
     # [0.2, 5.0] (which would otherwise SKIP the correction past 5 regions and
-    # leave the inflation in place). Skip when partial (FINDING 24) — scaling
+    # leave the inflation in place). Skip when partial — scaling
     # incomplete rows up would misattribute the missing regions' cost.
     # When the totals were already REGION-scoped (``lambda_ddb_region_scoped``),
     # each region split its own bill and the combined sum is already right —
@@ -347,10 +349,10 @@ def enumerate_all(
     session: boto3.Session,
     window: TimeWindow,
     region: str = ALL_REGIONS,
-    spec: Optional[CostFilterSpec] = None,
-    services: Optional[list[str]] = None,
-    top_n: Optional[int] = None,
-    errors: Optional[list[dict]] = None,
+    spec: CostFilterSpec | None = None,
+    services: list[str] | None = None,
+    top_n: int | None = None,
+    errors: list[dict] | None = None,
 ) -> list[AttributedResource]:
     """Per-resource rows + CE aggregate rows for every active service.
 
@@ -364,8 +366,7 @@ def enumerate_all(
     ``None`` preserves the original behaviour of returning every row.
 
     ``errors`` (optional): if a list is passed, one ``{"service", "error"}``
-    dict is appended for every work unit that failed after retries (FINDING
-    24), so callers can surface "results may be incomplete" to the user.
+    dict is appended for every work unit that failed after retries, so callers can surface "results may be incomplete" to the user.
     """
     spec = spec or pre_credit_gross()
     regions = _resolve_regions(session, region)
@@ -404,24 +405,22 @@ def enumerate_all(
 
     buckets: dict[str, list[AttributedResource]] = {}
 
-    # FINDINGS 17 & 34: reuse ONE frozen Session per region across every service
+    # Reuse ONE frozen Session per region across every service
     # so we don't re-freeze creds / open redundant client stacks per (svc, region).
     frozen_by_region: dict[str, boto3.Session] = {
         reg: _frozen_session(session, reg) for reg in regions
     }
-    # FINDING (audit, concurrency): a boto3 Session is not thread-safe for the
+    # A boto3 Session is not thread-safe for the
     # FIRST client() creation (it lazily initialises a shared data loader /
     # endpoint resolver / event system); concurrent first-creations on the same
     # Session race. Each per-region frozen Session is shared by up to ~6 work
     # units that run concurrently, so warm each Session once here in the
     # submitting thread — after warm-up, concurrent client() calls are safe.
     for _reg, _sess in frozen_by_region.items():
-        try:
+        with contextlib.suppress(Exception):
             _sess.client("ec2", region_name=_reg, config=None)
-        except Exception:
-            pass
 
-    # FINDING 21: do ONE describe_instances scan per region, shared by BOTH EC2
+    # Do ONE describe_instances scan per region, shared by BOTH EC2
     # attribution and EBS's id->name lookup, instead of each paginating it
     # separately. Cache lazily, locked per region so concurrent EC2/EBS work
     # units for the same region don't both scan (different regions still run
@@ -447,25 +446,23 @@ def enumerate_all(
     def _names_for(reg: str) -> dict[str, str]:
         return live_instance_names(frozen_by_region[reg], reg, instances=_instances_for(reg))
 
-    # FINDINGS 17, 20, 34: build a FLAT list of (label, thunk) work units across
+    # Build a FLAT list of (label, thunk) work units across
     # every (service x region), plus EC2 (one account-wide call) and S3 (one
-    # account-wide call, FINDING 3). Submit them all to a single bounded pool —
-    # no nested executors. EBS (FINDING 20) is parallelized as one unit per region.
-    work: list[tuple[str, callable]] = []
+    # account-wide call). Submit them all to a single bounded pool —
+    # no nested executors. EBS is parallelized as one unit per region.
+    work: list[tuple[str, Callable[[], Any]]] = []
 
     # A warmed frozen Session for account-wide / us-east-1 work (S3, EC2 CE).
     frozen_global = _frozen_session(session, "us-east-1")
-    try:
+    with contextlib.suppress(Exception):
         frozen_global.client("sts")
-    except Exception:
-        pass
 
     if want_it("EC2"):
-        # FINDING (audit, scale): submit ONE EC2 work unit PER REGION instead of
+        # Submit ONE EC2 work unit PER REGION instead of
         # a single unit that loops every region serially on one thread (each
         # region is a paginated CE call + bucketing — the old single unit was
         # the long pole while 16 workers sat idle). Each unit uses that region's
-        # frozen Session (FINDING 11: not the shared raw base session) and the
+        # frozen Session (not the shared raw base session) and the
         # shared ce_raw client (boto3 clients are thread-safe to call).
         def _mk_ec2(reg):
             ts = frozen_by_region[reg]
@@ -476,8 +473,8 @@ def enumerate_all(
             work.append(("EC2", _mk_ec2(reg)))
 
     if want_it("S3"):
-        # FINDING 3: list buckets + resolve bucket regions ONCE, account-wide,
-        # instead of per-region fan-out of attribute_s3. FINDING 11: use a frozen
+        # List buckets + resolve bucket regions ONCE, account-wide,
+        # instead of per-region fan-out of attribute_s3. Use a frozen
         # session, not the shared raw base session that the submitting thread and
         # other work units also touch.
         work.append(("S3", lambda: attribute_s3_all(frozen_global, ws, we, regions, ce_total("S3"))))
@@ -554,7 +551,7 @@ def enumerate_all(
                 try:
                     buckets[label].extend(fut.result())
                 except Exception as exc:
-                    # FINDING 24: adaptive retries on the clients above absorb
+                    # Adaptive retries on the clients above absorb
                     # most throttling before it reaches here. A unit that still
                     # fails leaves this service's attribution incomplete — record
                     # it so we (a) skip rescaling partial data and (b) can tell
@@ -594,7 +591,7 @@ def enumerate_all(
     flat.extend(other_rows)
     flat.sort(key=lambda r: r.cost_usd, reverse=True)
 
-    # FINDING 22: optional server-side top-N cap. When requested, keep the
+    # Optional server-side top-N cap. When requested, keep the
     # top_n highest-cost rows and collapse the long tail into one synthetic
     # "other resources" aggregate row so the returned total is preserved.
     if top_n is not None and top_n >= 0 and len(flat) > top_n:

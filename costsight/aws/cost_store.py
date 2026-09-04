@@ -10,8 +10,9 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Protocol
 
 log = logging.getLogger("costsight.cost_store")
 
@@ -30,7 +31,7 @@ class DailyServiceMatrix:
     days: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_ce(cls, results_by_time: list[dict]) -> "DailyServiceMatrix":
+    def from_ce(cls, results_by_time: list[dict]) -> DailyServiceMatrix:
         m = cls()
         seen_days: set[str] = set()
         for period in results_by_time:
@@ -89,20 +90,20 @@ class CostStore:
     def __init__(
         self,
         ce_client: Any,
-        cache_get: Callable[[str], Optional[Any]],
+        cache_get: Callable[[str], Any | None],
         cache_set: Callable[..., None],
     ) -> None:
         self._ce = ce_client
         self._cache_get = cache_get
         self._cache_set = cache_set
-        # Per-key single-flight (FINDINGS 2 & 21): serialize concurrent COLD
+        # Per-key single-flight: serialize concurrent COLD
         # fetches for the same key so N simultaneous missers trigger ONE
         # paginated CE call instead of N (each is billed per page).
         self._inflight_lock = threading.Lock()
         self._inflight: dict[str, threading.Lock] = {}
 
     @staticmethod
-    def _from_cached(cached: dict) -> "DailyServiceMatrix":
+    def _from_cached(cached: dict) -> DailyServiceMatrix:
         return DailyServiceMatrix(
             cells={tuple(k.split("\x1f")): v for k, v in cached["cells"].items()},
             days=list(cached["days"]),
@@ -193,7 +194,7 @@ class CostStore:
         """Fallback when CUR is not available: describe + USAGE_TYPE attribution.
 
         ``errors`` (optional list): populated with per-service failure dicts when
-        a region/work unit fails after retries (FINDING 24).
+        a region/work unit fails after retries.
         """
         from costsight.resources.runner import enumerate_all
         resources = enumerate_all(

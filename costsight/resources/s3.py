@@ -21,7 +21,7 @@ from .base import AttributedResource, tag_name, tags_to_dict
 
 log = logging.getLogger(__name__)
 
-# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+# Adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 # Bound the per-bucket API fan-out width. boto3 low-level clients are safe for
@@ -103,7 +103,7 @@ def attribute_s3_all(
     regions: list[str],
     ce_service_total_usd: float = 0.0,
 ) -> list[AttributedResource]:
-    """Account-wide S3 attribution in ONE pass (FINDING 3).
+    """Account-wide S3 attribution in ONE pass.
 
     The S3 CE total is global, and bucket->region resolution is the same
     regardless of which region's client we use. Calling ``attribute_s3``
@@ -233,7 +233,7 @@ def attribute_s3(
     ce_service_total_usd: float = 0.0,
 ) -> list[AttributedResource]:
     # NOTE: retained for backward-compat. The runner now calls
-    # ``attribute_s3_all`` once account-wide (FINDING 3) instead of fanning
+    # ``attribute_s3_all`` once account-wide instead of fanning
     # this per region. Kept here for any direct/legacy callers.
     s3 = session.client("s3", region_name=region, config=_ADAPTIVE_RETRY_CONFIG)
     try:

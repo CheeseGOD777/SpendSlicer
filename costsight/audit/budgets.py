@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -32,14 +31,14 @@ class BudgetFinding:
     time_unit: str              # MONTHLY | QUARTERLY | ANNUALLY
     limit_amount: float
     limit_unit: str             # USD or usage unit
-    actual_spend: Optional[float]
-    forecasted_spend: Optional[float]
+    actual_spend: float | None
+    forecasted_spend: float | None
     status: BudgetStatus
-    breach_reason: Optional[str] = None
-    account_id: Optional[str] = None
+    breach_reason: str | None = None
+    account_id: str | None = None
 
     @property
-    def utilization_pct(self) -> Optional[float]:
+    def utilization_pct(self) -> float | None:
         if self.limit_amount and self.actual_spend is not None:
             return round((self.actual_spend / self.limit_amount) * 100, 1)
         return None
@@ -60,14 +59,14 @@ class BudgetFinding:
         }
 
 
-def _safe_float(s: Optional[str]) -> Optional[float]:
+def _safe_float(s: str | None) -> float | None:
     try:
         return float(s) if s else None
     except (TypeError, ValueError):
         return None
 
 
-def _budget_limit(b: dict, now_epoch: Optional[float] = None) -> tuple[Optional[float], str]:
+def _budget_limit(b: dict, now_epoch: float | None = None) -> tuple[float | None, str]:
     """(limit, unit) for a budget — fixed or planned.
 
     ``PlannedBudgetLimits`` is keyed by period-START-time epoch-second
@@ -143,7 +142,7 @@ def get_budget_findings(
 
                 # Determine status
                 status = BudgetStatus.OK
-                breach_reason: Optional[str] = None
+                breach_reason: str | None = None
 
                 if actual is not None and actual > limit:
                     status = BudgetStatus.BREACHED

@@ -14,7 +14,6 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Optional, Union
 
 import boto3
 
@@ -68,9 +67,9 @@ def send_via_ses(
     report: dict,
     to_addresses: list[str],
     from_address: str,
-    subject: Optional[str] = None,
-    attachment_path: Optional[Union[str, Path]] = None,
-    session: Optional[boto3.Session] = None,
+    subject: str | None = None,
+    attachment_path: str | Path | None = None,
+    session: boto3.Session | None = None,
 ) -> ExportResult:
     """Send a cost report email via AWS SES."""
     subj = subject or f"AWS Cost Report — {report.get('account', '')} {report.get('period', '')}"
@@ -122,10 +121,10 @@ def send_via_smtp(
     from_address: str,
     smtp_host: str,
     smtp_port: int = 587,
-    smtp_user: Optional[str] = None,
-    smtp_password: Optional[str] = None,
-    subject: Optional[str] = None,
-    attachment_path: Optional[Union[str, Path]] = None,
+    smtp_user: str | None = None,
+    smtp_password: str | None = None,
+    subject: str | None = None,
+    attachment_path: str | Path | None = None,
 ) -> ExportResult:
     """Send a cost report email via SMTP (no extra dependencies)."""
     subj = subject or f"AWS Cost Report — {report.get('account', '')} {report.get('period', '')}"

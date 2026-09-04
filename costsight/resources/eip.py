@@ -9,9 +9,11 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from costsight.core import pricing
+from costsight.core.time_windows import utcnow_naive
+
 from .base import AttributedResource, clamp_window, hours_between, tag_name, tags_to_dict
 
-# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+# Adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 
@@ -28,7 +30,7 @@ def attribute_eip(
         return []
 
     idle_rate = pricing.eip_idle_rate()
-    effective_end = min(datetime.utcnow(), window_end)
+    effective_end = min(utcnow_naive(), window_end)
     window_hours = hours_between(window_start, effective_end)
 
     rows: list[AttributedResource] = []
@@ -45,7 +47,7 @@ def attribute_eip(
         # flag remains purely a *waste* signal, not a billing gate. (Setting
         # associated cost to $0 also caused their dollars to be redistributed
         # onto EBS volumes via the shared EC2-Other rescale.)
-        # FINDING 38: describe_addresses exposes no allocation timestamp, so the
+        # Describe_addresses exposes no allocation timestamp, so the
         # billed window is a best-effort full-window estimate.
         cost = window_hours * idle_rate
         hours = window_hours

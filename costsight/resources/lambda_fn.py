@@ -10,15 +10,14 @@ tag isn't active we fall back to equal split across listed functions.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from .base import AttributedResource, clamp_window, hours_between, tags_to_dict
+from .base import AttributedResource
 
-# FINDING 24: adaptive retries so throttling self-heals at the client layer.
+# Adaptive retries so throttling self-heals at the client layer.
 _ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
 
 

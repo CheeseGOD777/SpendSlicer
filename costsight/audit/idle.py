@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -30,7 +29,7 @@ class IdleResource:
     reason: str                         # human-readable waste reason
     estimated_monthly_cost_usd: float = 0.0
     attributes: dict = field(default_factory=dict)
-    arn: Optional[str] = None
+    arn: str | None = None
 
     def to_dict(self) -> dict:
         return {

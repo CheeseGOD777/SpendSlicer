@@ -83,7 +83,7 @@ function Sidebar({ page, setPage, profile, collapsed, setCollapsed }) {
       <div className="side-brand">
         <div className="side-logo">CL</div>
         <div className="side-brand-text">
-          <span className="name">Cloud Ledger</span>
+          <span className="name">CostSight</span>
           <span className="tag">FinOps Edition</span>
         </div>
       </div>
@@ -745,7 +745,7 @@ function ExportPage({ profile, period }) {
         </div>
         <div className="form-row">
           <label>File name (optional)</label>
-          <input type="text" placeholder={`cloud_ledger_report.${fmt}`} value={fileName} onChange={(e) => setFileName(e.target.value)} />
+          <input type="text" placeholder={`costsight_report.${fmt}`} value={fileName} onChange={(e) => setFileName(e.target.value)} />
         </div>
         <button className="btn btn-primary" onClick={runExport} disabled={running}>
           {running ? "Generating…" : "Generate report"}

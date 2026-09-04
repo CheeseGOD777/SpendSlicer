@@ -18,7 +18,6 @@ import pytest
 from costsight.aws.cost_explorer import CostExplorerClient
 from costsight.core.filters import (
     CostFilterSpec,
-    console_default,
     pre_credit_gross,
 )
 from costsight.core.types import CostMetric, Granularity, TimeWindow
@@ -220,7 +219,7 @@ def test_get_forecast_reraises_transient_error():
     ce_client = MagicMock()
     ce_client.get_cost_forecast.side_effect = Exception("ThrottlingException")
     ce = CostExplorerClient(session=MagicMock(), ce_client=ce_client)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="ThrottlingException"):
         ce.get_forecast(_window(15))
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union
 
 import boto3
 from botocore.exceptions import ClientError
@@ -12,12 +11,12 @@ from .base import ExportResult
 
 
 def upload_file(
-    local_path: Union[str, Path],
+    local_path: str | Path,
     bucket: str,
     key: str,
-    session: Optional[boto3.Session] = None,
-    content_type: Optional[str] = None,
-    extra_args: Optional[dict] = None,
+    session: boto3.Session | None = None,
+    content_type: str | None = None,
+    extra_args: dict | None = None,
 ) -> ExportResult:
     """Upload a local file to S3.
 
@@ -50,8 +49,8 @@ def upload_bytes(
     bucket: str,
     key: str,
     content_type: str = "application/octet-stream",
-    session: Optional[boto3.Session] = None,
-    extra_args: Optional[dict] = None,
+    session: boto3.Session | None = None,
+    extra_args: dict | None = None,
 ) -> ExportResult:
     """Upload raw bytes to S3 without a temp file."""
     dest = f"s3://{bucket}/{key}"

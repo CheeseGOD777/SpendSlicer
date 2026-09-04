@@ -16,7 +16,6 @@ from datetime import datetime
 
 from costsight.resources.base import AttributedResource
 
-
 # ---------------------------------------------------------------------------
 # Bug 3 — EC2 buckets with no live instance must surface as aggregate rows
 # ---------------------------------------------------------------------------
@@ -284,8 +283,9 @@ class _FakeCeRegional:
 
 def test_service_region_totals_maps_service_region_pairs():
     from datetime import datetime
-    from costsight.resources import runner as R
+
     from costsight.core.filters import pre_credit_gross
+    from costsight.resources import runner as R
 
     totals = R._service_region_totals(
         _FakeCeRegional(), datetime(2026, 6, 1), datetime(2026, 7, 1),
@@ -522,4 +522,4 @@ def test_stopped_rds_estimate_bills_storage():
 def test_idle_eip_estimate_uses_730_hours():
     from costsight.audit.idle import _EIP_MONTHLY_USD
 
-    assert _EIP_MONTHLY_USD == round(730 * 0.005, 2)  # 3.65, not 3.60
+    assert round(730 * 0.005, 2) == _EIP_MONTHLY_USD  # 3.65, not 3.60

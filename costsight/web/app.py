@@ -6,17 +6,18 @@ import hmac
 import logging
 import os
 import threading
-import time
-
-log = logging.getLogger(__name__)
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
 from costsight.web.context import get_profile_choices
 from costsight.web.deps import get_profiles
-from costsight.web.prewarm import prewarm_background
 from costsight.web.middleware import CECountingMiddleware
+from costsight.web.prewarm import prewarm_background
 from costsight.web.routes import audit_api, cost, export_api, pages, resources_api
+
+log = logging.getLogger(__name__)
 
 
 def _auth_token() -> str:
@@ -29,7 +30,7 @@ def _allowed_hosts() -> set[str]:
 
     Defaults to loopback only (the documented bind target). Override with
     COSTSIGHT_ALLOWED_HOSTS (comma-separated) for non-loopback deployments. Used as
-    an anti-DNS-rebinding / CSRF allow-list (FINDING 15).
+    an anti-DNS-rebinding / CSRF allow-list.
     """
     env = (os.environ.get("COSTSIGHT_ALLOWED_HOSTS") or "").strip()
     if env:
@@ -69,7 +70,7 @@ def _is_open_path(path: str) -> bool:
 
 
 def _origin_host_allowed(request: Request) -> bool:
-    """CSRF / DNS-rebinding defense for state-changing requests (FINDING 15).
+    """CSRF / DNS-rebinding defense for state-changing requests.
 
     1. The request's own Host must be in the allow-list — this blocks DNS
        rebinding (an attacker page resolving their domain to 127.0.0.1 then
@@ -110,9 +111,8 @@ async def require_auth(request: Request) -> None:
         return
 
     # CSRF: reject cross-origin state-changing requests regardless of token.
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
-        if not _origin_host_allowed(request):
-            raise HTTPException(status_code=403, detail="Cross-origin request rejected.")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not _origin_host_allowed(request):
+        raise HTTPException(status_code=403, detail="Cross-origin request rejected.")
 
     token = _auth_token()
     if not token:
@@ -123,25 +123,6 @@ async def require_auth(request: Request) -> None:
     if not hmac.compare_digest(presented, token):
         raise HTTPException(status_code=401, detail="Invalid or missing API token.")
 
-
-app = FastAPI(
-    title="costsight",
-    description="Self-hosted AWS cost visibility — uses your local AWS CLI profiles.",
-    docs_url=None,
-    redoc_url=None,
-    dependencies=[Depends(require_auth)],
-)
-
-app.add_middleware(CECountingMiddleware)
-
-app.include_router(pages.router)
-app.include_router(cost.router)
-app.include_router(resources_api.router)
-app.include_router(audit_api.router)
-app.include_router(export_api.router)
-
-
-@app.on_event("startup")
 def _warn_if_unauthenticated() -> None:
     if not _auth_token():
         log.warning(
@@ -151,7 +132,6 @@ def _warn_if_unauthenticated() -> None:
         )
 
 
-@app.on_event("startup")
 def _kick_prewarm() -> None:
     get_profile_choices()
     # Disabled by default to avoid large CE/API fan-out on startup.
@@ -166,20 +146,22 @@ def _kick_prewarm() -> None:
         ).start()
 
 
-def _cur_ingest_worker() -> None:
+def _cur_ingest_worker(stop: threading.Event) -> None:
     interval = float(os.environ.get("COSTSIGHT_CUR_INGEST_INTERVAL_SECONDS", str(6 * 3600)))
     bucket = os.environ.get("COSTSIGHT_CUR_BUCKET")
     prefix = os.environ.get("COSTSIGHT_CUR_PREFIX", "cur/")
     profile = os.environ.get("COSTSIGHT_CUR_PROFILE")
     if not bucket:
         return
-    while True:
+    while not stop.is_set():
         db = None
         try:
             import boto3
+
             from costsight.cur.ingestor import CurIngestor
             from costsight.cur.schema import connect as cur_connect
-            from costsight.web.deps import _CUR_DB_PATH, _CACHE_DIR
+            from costsight.web.deps import _CACHE_DIR, _CUR_DB_PATH
+
             session = boto3.Session(profile_name=profile) if profile else boto3.Session()
             db = cur_connect(_CUR_DB_PATH)
             local_dir = _CACHE_DIR / "parquet"
@@ -195,21 +177,84 @@ def _cur_ingest_worker() -> None:
         finally:
             if db is not None:
                 db.close()
-        time.sleep(interval)
+        # Event.wait instead of time.sleep so shutdown doesn't block for hours.
+        stop.wait(interval)
 
 
-@app.on_event("startup")
-def _start_cur_worker() -> None:
-    if os.environ.get("COSTSIGHT_CUR_BUCKET"):
-        t = threading.Thread(target=_cur_ingest_worker, daemon=True, name="costsight-cur-ingest")
-        t.start()
-        log.info("CUR background ingest worker started (bucket=%s)", os.environ["COSTSIGHT_CUR_BUCKET"])
+def _start_cur_worker(stop: threading.Event) -> threading.Thread | None:
+    if not os.environ.get("COSTSIGHT_CUR_BUCKET"):
+        return None
+    t = threading.Thread(
+        target=_cur_ingest_worker,
+        args=(stop,),
+        daemon=True,
+        name="costsight-cur-ingest",
+    )
+    t.start()
+    log.info("CUR background ingest worker started (bucket=%s)", os.environ["COSTSIGHT_CUR_BUCKET"])
+    return t
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Startup/shutdown hooks.
+
+    Replaces the three deprecated ``@app.on_event("startup")`` handlers.
+    ``on_event`` is slated for removal in a future Starlette release, and it
+    also had no shutdown counterpart here — the CUR ingest thread slept up to
+    six hours in ``time.sleep``, so a packaged desktop build could hang on
+    quit. The stop Event lets it exit promptly.
+    """
+    _warn_if_unauthenticated()
+    _kick_prewarm()
+    stop = threading.Event()
+    _start_cur_worker(stop)
+    try:
+        yield
+    finally:
+        stop.set()
+
+
+app = FastAPI(
+    title="CostSight",
+    description="Self-hosted AWS cost visibility — uses your local AWS CLI profiles.",
+    docs_url=None,
+    redoc_url=None,
+    dependencies=[Depends(require_auth)],
+    lifespan=lifespan,
+)
+
+app.add_middleware(CECountingMiddleware)
+
+app.include_router(pages.router)
+app.include_router(cost.router)
+app.include_router(resources_api.router)
+app.include_router(audit_api.router)
+app.include_router(export_api.router)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8080, reload: bool = False) -> None:
+    """Run the dashboard under uvicorn.
+
+    ``reload`` is opt-in: it re-execs the process via a watcher, which breaks
+    frozen (PyInstaller) builds outright and is never what a user running the
+    launcher wants. Developers get it via ``COSTSIGHT_RELOAD=1``.
+    """
     import uvicorn
-    uvicorn.run("costsight.web.app:app", host=host, port=port, reload=reload)
+
+    if reload:
+        # The import-string form is required for reload to work at all.
+        uvicorn.run("costsight.web.app:app", host=host, port=port, reload=True)
+    else:
+        uvicorn.run(app, host=host, port=port)
+
+
+def main() -> None:
+    host = os.environ.get("COSTSIGHT_HOST", "127.0.0.1")
+    port = int(os.environ.get("COSTSIGHT_PORT", "8080"))
+    reload = os.environ.get("COSTSIGHT_RELOAD", "0").lower() in ("1", "true", "yes")
+    serve(host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":
-    serve(reload=True)
+    main()

@@ -9,15 +9,13 @@ prints it in verbose mode; PDFs print it in the footer.
 Why: the #1 trust-breaker for a FinOps tool is numbers that don't match
 the AWS Billing Console. Provenance makes every mismatch reproducible
 and every toggle (metric, record type, etc.) visible.
-
-Phase 1: stubs. Phase 3: fully wired into every cost-returning API path.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Literal
 
 from costsight.core.types import CostMetric, TimeWindow
 
@@ -37,12 +35,12 @@ class Provenance:
     metric: CostMetric
     window: TimeWindow
     timezone_str: str = "UTC"
-    included_record_types: Optional[tuple[RecordType, ...]] = None
-    excluded_record_types: Optional[tuple[RecordType, ...]] = None
+    included_record_types: tuple[RecordType, ...] | None = None
+    excluded_record_types: tuple[RecordType, ...] | None = None
     group_by: tuple[str, ...] = field(default_factory=tuple)
     filter_summary: str = ""
-    ce_ground_truth_total: Optional[float] = None  # For attribution variance checks
-    variance_from_ground_truth_pct: Optional[float] = None
+    ce_ground_truth_total: float | None = None  # For attribution variance checks
+    variance_from_ground_truth_pct: float | None = None
     computed_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
     def label(self) -> str:
@@ -86,11 +84,11 @@ class CostValue:
 VARIANCE_WARN_THRESHOLD_PCT = 1.0
 
 
-def variance_warning(provenance: Provenance) -> Optional[str]:
+def variance_warning(provenance: Provenance) -> str | None:
     """Return a warning message if attribution drift exceeds threshold, else None.
 
-    Used in Phase 3 to surface accuracy issues in the UI before the user
-    sees a mystery mismatch.
+    Surfaces accuracy issues in the UI before the user hits a mystery
+    mismatch against the Billing console.
     """
     v = provenance.variance_from_ground_truth_pct
     if v is None:

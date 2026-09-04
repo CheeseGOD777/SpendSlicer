@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re as _re
+
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -9,8 +11,6 @@ from costsight.core.filters import pre_credit_gross
 from costsight.resources import enumerate_all
 from costsight.resources.runner import ALL_REGIONS
 from costsight.web.context import friendly_error
-import re as _re
-
 from costsight.web.deps import (
     cache_get,
     cache_get_swr,
@@ -26,7 +26,7 @@ from costsight.web.deps import (
 router = APIRouter(prefix="/api/resources")
 
 # AWS region code shape, or the ALL_REGIONS sentinel. Clamp unknown values so a
-# client-supplied region can't mint unbounded cache keys (FINDING 20).
+# client-supplied region can't mint unbounded cache keys.
 _REGION_RE = _re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
 
 
@@ -96,7 +96,7 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         spec = pre_credit_gross()
         window = period_to_window(period)
 
-        # FINDING 24: collect per-service attribution failures so we can warn the
+        # Collect per-service attribution failures so we can warn the
         # user that results may be incomplete instead of silently showing low totals.
         attr_errors: list[dict] = []
 
@@ -163,7 +163,7 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
             ctx["unattributed"] / ctx["ce_total"] * 100 if ctx["ce_total"] > 0 else 0.0
         )
 
-        # FINDING 24: cap the row list BEFORE caching (totals/services_summary
+        # Cap the row list BEFORE caching (totals/services_summary
         # above are already computed from the full set). Otherwise the cached
         # blob — and every per-request dict() copy + re-sort — grows unbounded
         # with account size, even though the response only ever serves
