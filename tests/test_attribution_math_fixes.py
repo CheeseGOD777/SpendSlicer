@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from aws_cost_ultra.resources.base import AttributedResource
+from costsight.resources.base import AttributedResource
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def _live_t4g_small():
 
 
 def test_unmatched_ec2_bucket_becomes_aggregate_row_not_drift():
-    from aws_cost_ultra.resources.ec2 import _attribute_from_usage_type
+    from costsight.resources.ec2 import _attribute_from_usage_type
 
     rows = _attribute_from_usage_type(
         session=None, ce_client=_FakeCe(),
@@ -82,7 +82,7 @@ def test_unmatched_ec2_bucket_becomes_aggregate_row_not_drift():
 
 
 def test_non_instance_ec2_usage_surfaces_as_single_aggregate():
-    from aws_cost_ultra.resources.ec2 import _attribute_from_usage_type
+    from costsight.resources.ec2 import _attribute_from_usage_type
 
     rows = _attribute_from_usage_type(
         session=None, ce_client=_FakeCe(),
@@ -109,7 +109,7 @@ def _row(service, rid, cost, **attrs):
 
 
 def test_eip_not_rescaled_and_vpc_aggregate_reduced():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     buckets = {
         "EBS": [_row("EBS", "vol-1", 4.0), _row("EBS", "vol-2", 4.0)],
@@ -137,7 +137,7 @@ def test_eip_not_rescaled_and_vpc_aggregate_reduced():
 
 
 def test_vpc_aggregate_dropped_when_eips_cover_it():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     buckets = {"EIP": [_row("EIP", "eip-1", 31.35)]}
     totals = {"Amazon Virtual Private Cloud": 31.35}
@@ -148,7 +148,7 @@ def test_vpc_aggregate_dropped_when_eips_cover_it():
 
 
 def test_auto_assigned_public_ips_get_rows_at_exact_rate():
-    from aws_cost_ultra.resources.eip import auto_assigned_ip_rows
+    from costsight.resources.eip import auto_assigned_ip_rows
 
     def inst(ip, state="running", launch=datetime(2026, 1, 1), iid="i-x"):
         return {"InstanceId": iid, "PublicIpAddress": ip,
@@ -176,7 +176,7 @@ def test_auto_assigned_public_ips_get_rows_at_exact_rate():
 # ---------------------------------------------------------------------------
 
 def test_report_dict_has_real_counts_not_caps():
-    from aws_cost_ultra.web.routes.export_api import _assemble_report
+    from costsight.web.routes.export_api import _assemble_report
 
     services = [{"service": f"svc-{i}", "cost_usd": float(i + 1)} for i in range(30)]
     resources = [{"service": "EC2", "resource_id": f"r{i}", "cost": float(i)}
@@ -207,7 +207,7 @@ def _remainder_rows(other_rows, ce_name):
 
 
 def test_rds_rescale_clamp_skip_emits_remainder_row():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     # A db.r6g.large priced $0 by the fallback table: raw sum $15 vs CE $170
     # -> factor 11.3 > 5.0 -> rescale skipped. The missing $155 must appear.
@@ -222,7 +222,7 @@ def test_rds_rescale_clamp_skip_emits_remainder_row():
 
 
 def test_empty_inventory_emits_full_total_remainder():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     # Every DB deleted since the closed month: no rows at all -> the whole
     # CE total used to disappear from the Resources view.
@@ -235,7 +235,7 @@ def test_empty_inventory_emits_full_total_remainder():
 
 
 def test_successful_rescale_emits_no_remainder():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     buckets = {"EBS": [_row("EBS", "vol-1", 4.0), _row("EBS", "vol-2", 4.0)]}
     totals = {"EC2 - Other": 12.0}  # factor 1.5, in band -> rescale runs
@@ -246,7 +246,7 @@ def test_successful_rescale_emits_no_remainder():
 
 
 def test_ec2_other_pool_gap_surfaces_as_remainder():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     # NAT gateways ($43) share the pool with volumes ($8 raw): factor 6.4
     # trips the clamp; volumes keep raw cost and the pool gap must surface.
@@ -284,8 +284,8 @@ class _FakeCeRegional:
 
 def test_service_region_totals_maps_service_region_pairs():
     from datetime import datetime
-    from aws_cost_ultra.resources import runner as R
-    from aws_cost_ultra.core.filters import pre_credit_gross
+    from costsight.resources import runner as R
+    from costsight.core.filters import pre_credit_gross
 
     totals = R._service_region_totals(
         _FakeCeRegional(), datetime(2026, 6, 1), datetime(2026, 7, 1),
@@ -297,7 +297,7 @@ def test_service_region_totals_maps_service_region_pairs():
 
 
 def test_region_scoped_lambda_rows_are_not_renormalized():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     # Region-scoped totals: us-east-1 carries $99.999, ap-south-1 $0.001.
     buckets = {"Lambda": [
@@ -315,7 +315,7 @@ def test_region_scoped_lambda_rows_are_not_renormalized():
 
 
 def test_unscoped_lambda_rows_still_normalize_to_ce_total():
-    from aws_cost_ultra.resources import runner as R
+    from costsight.resources import runner as R
 
     # Fallback path (regional CE call failed): two regions each split the
     # full $100 -> raw sum $200 -> normalize back to $100.
@@ -333,7 +333,7 @@ def test_unscoped_lambda_rows_still_normalize_to_ce_total():
 # ---------------------------------------------------------------------------
 
 def test_rds_instance_rate_uses_pricing_api(monkeypatch):
-    from aws_cost_ultra.core import pricing
+    from costsight.core import pricing
 
     monkeypatch.setattr(pricing, "_fetch_from_api", lambda *a, **k: 0.353)
     rate = pricing.rds_instance_rate(None, "db.r6g.large", "postgres", "us-east-1")
@@ -341,7 +341,7 @@ def test_rds_instance_rate_uses_pricing_api(monkeypatch):
 
 
 def test_rds_instance_rate_falls_back_when_api_empty(monkeypatch):
-    from aws_cost_ultra.core import pricing
+    from costsight.core import pricing
 
     monkeypatch.setattr(pricing, "_fetch_from_api", lambda *a, **k: None)
     rate = pricing.rds_instance_rate(None, "db.t3.micro", "mysql", "eu-west-9")
@@ -363,7 +363,7 @@ def _db(state="available", multi_az=False, storage_gb=500, cls="db.m5.large"):
 
 
 def test_stopped_rds_still_bills_storage():
-    from aws_cost_ultra.resources.rds import _row_for_db
+    from costsight.resources.rds import _row_for_db
 
     row = _row_for_db(
         _db(state="stopped"), "ap-south-1",
@@ -377,7 +377,7 @@ def test_stopped_rds_still_bills_storage():
 
 
 def test_backing_up_rds_earns_instance_hours():
-    from aws_cost_ultra.resources.rds import _row_for_db
+    from costsight.resources.rds import _row_for_db
 
     row = _row_for_db(
         _db(state="backing-up"), "ap-south-1",
@@ -388,7 +388,7 @@ def test_backing_up_rds_earns_instance_hours():
 
 
 def test_multi_az_rds_doubles_instance_and_storage():
-    from aws_cost_ultra.resources.rds import _row_for_db
+    from costsight.resources.rds import _row_for_db
 
     single = _row_for_db(_db(), "ap-south-1",
                          datetime(2026, 6, 1), datetime(2026, 7, 1),
@@ -400,7 +400,7 @@ def test_multi_az_rds_doubles_instance_and_storage():
 
 
 def test_region_to_location_covers_newer_regions():
-    from aws_cost_ultra.core.pricing import _region_to_location
+    from costsight.core.pricing import _region_to_location
 
     assert _region_to_location("eu-north-1") == "EU (Stockholm)"
     assert _region_to_location("ap-southeast-3") == "Asia Pacific (Jakarta)"
@@ -433,7 +433,7 @@ class _FakeCeStore:
 
 
 def test_cost_source_passes_region_to_describe_path():
-    from aws_cost_ultra.aws.cost_source import CostSource
+    from costsight.aws.cost_source import CostSource
 
     ce = _FakeCeStore()
     src = CostSource(cur_store=None, cost_store=ce)
@@ -442,7 +442,7 @@ def test_cost_source_passes_region_to_describe_path():
 
 
 def test_cost_source_skips_cur_for_region_scoped_requests():
-    from aws_cost_ultra.aws.cost_source import CostSource
+    from costsight.aws.cost_source import CostSource
 
     ce = _FakeCeStore()
     src = CostSource(cur_store=_FakeCur(), cost_store=ce)
@@ -462,7 +462,7 @@ def test_cost_source_skips_cur_for_region_scoped_requests():
 # ---------------------------------------------------------------------------
 
 def test_planned_budget_limit_picks_current_period():
-    from aws_cost_ultra.audit.budgets import _budget_limit
+    from costsight.audit.budgets import _budget_limit
 
     # Periods starting Jun 1 and Jul 1 2026 (epoch seconds, as AWS returns).
     planned = {
@@ -476,7 +476,7 @@ def test_planned_budget_limit_picks_current_period():
 
 
 def test_planned_budget_before_first_period_uses_earliest():
-    from aws_cost_ultra.audit.budgets import _budget_limit
+    from costsight.audit.budgets import _budget_limit
 
     planned = {"1780272000": {"Amount": "300.0", "Unit": "USD"}}
     amount, unit = _budget_limit({"PlannedBudgetLimits": planned},
@@ -485,7 +485,7 @@ def test_planned_budget_before_first_period_uses_earliest():
 
 
 def test_fixed_budget_limit_still_wins():
-    from aws_cost_ultra.audit.budgets import _budget_limit
+    from costsight.audit.budgets import _budget_limit
 
     amount, unit = _budget_limit(
         {"BudgetLimit": {"Amount": "50", "Unit": "USD"},
@@ -501,7 +501,7 @@ def test_fixed_budget_limit_still_wins():
 # ---------------------------------------------------------------------------
 
 def test_ebs_monthly_estimate_is_type_aware():
-    from aws_cost_ultra.audit.idle import _ebs_monthly_estimate
+    from costsight.audit.idle import _ebs_monthly_estimate
 
     assert round(_ebs_monthly_estimate(100, "gp3", 3000), 2) == 8.0
     assert round(_ebs_monthly_estimate(1024, "sc1", 0), 2) == round(1024 * 0.015, 2)
@@ -513,13 +513,13 @@ def test_ebs_monthly_estimate_is_type_aware():
 
 
 def test_stopped_rds_estimate_bills_storage():
-    from aws_cost_ultra.audit.idle import _rds_stopped_estimate
+    from costsight.audit.idle import _rds_stopped_estimate
 
     assert round(_rds_stopped_estimate(500, 0.138, multi_az=False), 2) == 69.0
     assert round(_rds_stopped_estimate(500, 0.138, multi_az=True), 2) == 138.0
 
 
 def test_idle_eip_estimate_uses_730_hours():
-    from aws_cost_ultra.audit.idle import _EIP_MONTHLY_USD
+    from costsight.audit.idle import _EIP_MONTHLY_USD
 
     assert _EIP_MONTHLY_USD == round(730 * 0.005, 2)  # 3.65, not 3.60

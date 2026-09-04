@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aws_cost_ultra.core.filters import (
+from costsight.core.filters import (
     ALL_RECORD_TYPES,
     CostFilterSpec,
     build_ce_filter,

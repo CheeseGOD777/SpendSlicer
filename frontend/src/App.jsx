@@ -649,7 +649,7 @@ function ResourcesPage({ profile, period }) {
           <p>No resources attributed for this window.</p>
           <p className="muted">
             If you just enabled CUR, data takes ~24h to arrive. Run{" "}
-            <code>aws-cost-ultra cur status</code> to check.
+            <code>costsight cur status</code> to check.
           </p>
         </div>
       )}

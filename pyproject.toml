@@ -3,13 +3,13 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aws-cost-ultra"
+name = "costsight"
 version = "0.2.0"
 description = "Self-hosted unified FinOps tool for AWS — cost visibility, audit, and reporting with zero data custody."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "aws-cost-ultra contributors" }]
+authors = [{ name = "costsight contributors" }]
 keywords = ["aws", "cost", "finops", "billing", "audit", "cloud"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -58,22 +58,22 @@ dev = [
     "ruff>=0.4",
 ]
 all = [
-    "aws-cost-ultra[cli,web,exporters,cur]",
+    "costsight[cli,web,exporters,cur]",
 ]
 
 [project.scripts]
-aws-cost-ultra = "aws_cost_ultra.cli:main"
+costsight = "costsight.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/TirthTeraiya/aws-cost-ultra"
-Issues = "https://github.com/TirthTeraiya/aws-cost-ultra/issues"
+Homepage = "https://github.com/TirthTeraiya/costsight"
+Issues = "https://github.com/TirthTeraiya/costsight/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["aws_cost_ultra*"]
+include = ["costsight*"]
 
 [tool.setuptools.package-data]
-aws_cost_ultra = []
+costsight = []
 
 [tool.ruff]
 line-length = 100

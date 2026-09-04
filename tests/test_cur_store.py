@@ -6,8 +6,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from aws_cost_ultra.cur.schema import connect, set_parquet_glob, ensure_line_items_view
-from aws_cost_ultra.cur.store import CurStore
+from costsight.cur.schema import connect, set_parquet_glob, ensure_line_items_view
+from costsight.cur.store import CurStore
 
 
 @dataclass

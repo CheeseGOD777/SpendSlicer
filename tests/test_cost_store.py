@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from aws_cost_ultra.aws.cost_store import CostStore, DailyServiceMatrix
+from costsight.aws.cost_store import CostStore, DailyServiceMatrix
 
 
 def _fake_ce_response():
@@ -108,8 +108,8 @@ def test_store_cache_key_namespaces_account():
 
 def test_to_grouped_cost_list_preserves_order_and_totals():
     from datetime import datetime, timezone
-    from aws_cost_ultra.core.provenance import Provenance
-    from aws_cost_ultra.core.types import CostMetric, TimeWindow
+    from costsight.core.provenance import Provenance
+    from costsight.core.types import CostMetric, TimeWindow
     m = DailyServiceMatrix.from_ce(_fake_ce_response())
     win = TimeWindow(
         start=datetime(2026, 5, 18, tzinfo=timezone.utc),

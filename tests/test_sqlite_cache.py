@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aws_cost_ultra.web.sqlite_cache import SqliteCache
+from costsight.web.sqlite_cache import SqliteCache
 
 
 @pytest.fixture

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 
 def test_package_imports():
-    import aws_cost_ultra
-    assert aws_cost_ultra.__version__
+    import costsight
+    assert costsight.__version__
 
 
 def test_core_imports():
-    from aws_cost_ultra.core import pricing, provenance, service_groups, types
+    from costsight.core import pricing, provenance, service_groups, types
     assert pricing.FALLBACK_RATES["ec2"]
     assert types.CostMetric.UNBLENDED.value == "UnblendedCost"
     assert provenance.VARIANCE_WARN_THRESHOLD_PCT == 1.0
@@ -17,8 +17,8 @@ def test_core_imports():
 
 
 def test_aws_layer_imports():
-    from aws_cost_ultra.aws import cost_explorer, session
-    from aws_cost_ultra.resources.ec2 import attribute_ec2, attribute_ec2_account
+    from costsight.aws import cost_explorer, session
+    from costsight.resources.ec2 import attribute_ec2, attribute_ec2_account
     assert callable(session.make_session)
     assert callable(session.list_profiles)
     assert callable(attribute_ec2)
@@ -26,8 +26,8 @@ def test_aws_layer_imports():
 
 
 def test_resources_imports():
-    from aws_cost_ultra.resources import enumerate_all
-    from aws_cost_ultra.resources.runner import ALL_REGIONS
+    from costsight.resources import enumerate_all
+    from costsight.resources.runner import ALL_REGIONS
     assert callable(enumerate_all)
     assert ALL_REGIONS == "all"
 
@@ -37,7 +37,7 @@ def test_time_window_validation():
 
     import pytest
 
-    from aws_cost_ultra.core.types import TimeWindow
+    from costsight.core.types import TimeWindow
 
     now = datetime.now(tz=timezone.utc)
     w = TimeWindow(start=now - timedelta(days=7), end=now)
@@ -52,10 +52,10 @@ def test_time_window_validation():
 
 
 def test_merge_ec2_groups():
-    from aws_cost_ultra.aws.cost_explorer import GroupedCost
-    from aws_cost_ultra.core.provenance import CostValue, Provenance
-    from aws_cost_ultra.core.service_groups import merge_ec2_service_groups
-    from aws_cost_ultra.core.types import CostMetric, TimeWindow
+    from costsight.aws.cost_explorer import GroupedCost
+    from costsight.core.provenance import CostValue, Provenance
+    from costsight.core.service_groups import merge_ec2_service_groups
+    from costsight.core.types import CostMetric, TimeWindow
     from datetime import datetime, timedelta, timezone
 
     now = datetime.now(tz=timezone.utc)

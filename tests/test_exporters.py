@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from aws_cost_ultra.exporters.base import ExportResult
-from aws_cost_ultra.exporters.csv_export import export_csv, to_csv_string
-from aws_cost_ultra.exporters.json_export import export_json, to_json_string
-from aws_cost_ultra.exporters.scheduler import (
+from costsight.exporters.base import ExportResult
+from costsight.exporters.csv_export import export_csv, to_csv_string
+from costsight.exporters.json_export import export_json, to_json_string
+from costsight.exporters.scheduler import (
     ScheduledExportConfig,
     _report_to_csv_rows,
     run_scheduled_export,

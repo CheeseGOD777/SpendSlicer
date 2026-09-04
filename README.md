@@ -1,4 +1,4 @@
-# aws-cost-ultra
+# costsight
 
 Self-hosted AWS cost visibility for DevOps teams. Uses your **local AWS CLI profiles** — no cloud account linking, no data leaves your machine.
 
@@ -15,7 +15,7 @@ The AWS Billing console shows usage types (`t4g.small · 500 hrs`) without resou
 
 ```bash
 git clone <repo-url>
-cd aws-cost-ultra
+cd costsight
 ./run.sh          # Windows: run.bat
 ```
 
@@ -39,7 +39,7 @@ npm run build    # refresh frontend/dist served at /app
 ### Security note
 
 The server binds to 127.0.0.1 by default. If you expose it on any other
-interface, set `ACU_AUTH_TOKEN` — never run it unauthenticated on a network.
+interface, set `COSTSIGHT_AUTH_TOKEN` — never run it unauthenticated on a network.
 
 ## IAM permissions (minimum)
 
@@ -53,7 +53,7 @@ Your profile needs read-only access including:
 ## Architecture
 
 ```
-aws_cost_ultra/
+costsight/
   core/       Filters, provenance, pricing, service grouping
   aws/        Session factory, Cost Explorer, CE RESOURCE_ID queries
   resources/  Per-resource attribution (EC2, EBS, RDS, …)

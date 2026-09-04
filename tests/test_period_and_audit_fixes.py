@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from aws_cost_ultra.core.types import TimeWindow
+from costsight.core.types import TimeWindow
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ def test_first_of_month_window_does_not_collapse():
 
 
 def test_last_n_days_spans_full_n_days():
-    from aws_cost_ultra.core.time_windows import last_n_days
+    from costsight.core.time_windows import last_n_days
 
     s, e = last_n_days(30).iso()
     span = (datetime.fromisoformat(e) - datetime.fromisoformat(s)).days
@@ -57,7 +57,7 @@ def test_last_n_days_spans_full_n_days():
 
 
 def test_remainder_of_current_month_starts_tomorrow():
-    from aws_cost_ultra.core.time_windows import remainder_of_current_month
+    from costsight.core.time_windows import remainder_of_current_month
 
     w = remainder_of_current_month()
     # Either None (last day of month) or a window that begins after today.
@@ -73,14 +73,14 @@ def test_remainder_of_current_month_starts_tomorrow():
 # ---------------------------------------------------------------------------
 
 def test_month_window_is_one_calendar_month():
-    from aws_cost_ultra.core.time_windows import month_window
+    from costsight.core.time_windows import month_window
 
     assert month_window(2026, 5).iso() == ("2026-05-01", "2026-06-01")
     assert month_window(2026, 12).iso() == ("2026-12-01", "2027-01-01")
 
 
 def test_period_to_window_parses_month():
-    from aws_cost_ultra.web.deps import period_to_window
+    from costsight.web.deps import period_to_window
 
     assert period_to_window("2026-05").iso() == ("2026-05-01", "2026-06-01")
 
@@ -95,13 +95,13 @@ def test_period_to_window_parses_month():
     ],
 )
 def test_is_valid_period(period, valid):
-    from aws_cost_ultra.web.deps import is_valid_period
+    from costsight.web.deps import is_valid_period
 
     assert is_valid_period(period) is valid
 
 
 def test_available_periods_has_both_groups():
-    from aws_cost_ultra.web.deps import available_periods
+    from costsight.web.deps import available_periods
 
     aps = available_periods()
     groups = {p["group"] for p in aps}
@@ -112,8 +112,8 @@ def test_available_periods_has_both_groups():
 
 
 def test_prev_window_for_month_is_previous_calendar_month():
-    from aws_cost_ultra.web.routes.cost import _prev_window
-    from aws_cost_ultra.web.deps import period_to_window
+    from costsight.web.routes.cost import _prev_window
+    from costsight.web.deps import period_to_window
 
     # March 2026 (31-day predecessor problem): duration-shift would land in Feb
     # mid-month; the fix must return all of February 2026.
@@ -123,8 +123,8 @@ def test_prev_window_for_month_is_previous_calendar_month():
 
 
 def test_prev_window_for_january_crosses_year():
-    from aws_cost_ultra.web.routes.cost import _prev_window
-    from aws_cost_ultra.web.deps import period_to_window
+    from costsight.web.routes.cost import _prev_window
+    from costsight.web.deps import period_to_window
 
     w = period_to_window("2026-01")
     prev = _prev_window("2026-01", w)
@@ -136,7 +136,7 @@ def test_prev_window_for_january_crosses_year():
 # ---------------------------------------------------------------------------
 
 def test_build_ce_filter_includes_region_dimension():
-    from aws_cost_ultra.core.filters import CostFilterSpec, build_ce_filter
+    from costsight.core.filters import CostFilterSpec, build_ce_filter
 
     built = build_ce_filter(CostFilterSpec(region="eu-west-1"))
     # Flatten any And wrapper.
@@ -149,7 +149,7 @@ def test_build_ce_filter_includes_region_dimension():
 
 
 def test_region_omitted_filter_has_no_region_dimension():
-    from aws_cost_ultra.core.filters import pre_credit_gross, build_ce_filter
+    from costsight.core.filters import pre_credit_gross, build_ce_filter
 
     built = build_ce_filter(pre_credit_gross()) or {}
     flat = built.get("And", [built])
@@ -161,7 +161,7 @@ def test_region_omitted_filter_has_no_region_dimension():
 # ---------------------------------------------------------------------------
 
 def test_cache_lazy_deletes_fully_expired_row(tmp_path):
-    from aws_cost_ultra.web.sqlite_cache import SqliteCache
+    from costsight.web.sqlite_cache import SqliteCache
 
     c = SqliteCache(tmp_path / "c.db")
     c.set("k", {"v": 1}, ttl_seconds=0.0, swr_seconds=0.0)
@@ -173,8 +173,8 @@ def test_cache_lazy_deletes_fully_expired_row(tmp_path):
 
 
 def test_cache_periodic_sweep_purges_dead_rows(tmp_path):
-    from aws_cost_ultra.web import sqlite_cache
-    from aws_cost_ultra.web.sqlite_cache import SqliteCache
+    from costsight.web import sqlite_cache
+    from costsight.web.sqlite_cache import SqliteCache
 
     c = SqliteCache(tmp_path / "c.db")
     # Insert one already-dead row that is never read again.
@@ -194,8 +194,8 @@ def test_cache_periodic_sweep_purges_dead_rows(tmp_path):
 def test_lambda_dynamodb_rescaled_to_single_ce_total(monkeypatch):
     """Simulate functions in N regions each splitting the full account-wide CE
     total; the reconciled sum must equal the single CE total, not N x it."""
-    from aws_cost_ultra.resources import runner as R
-    from aws_cost_ultra.resources.base import AttributedResource
+    from costsight.resources import runner as R
+    from costsight.resources.base import AttributedResource
 
     N_REGIONS = 8           # > 5 so the old clamp would have skipped the fix
     CE_LAMBDA_TOTAL = 300.0
@@ -236,8 +236,8 @@ def test_lambda_dynamodb_rescaled_to_single_ce_total(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_mtd_prev_window_is_same_day_slice_not_full_month():
-    from aws_cost_ultra.web.routes.cost import _prev_window
-    from aws_cost_ultra.core.types import TimeWindow
+    from costsight.web.routes.cost import _prev_window
+    from costsight.core.types import TimeWindow
     from datetime import datetime, timezone
 
     # MTD through June 6 -> compare against June-equivalent slice of May (1st-6th),
@@ -254,7 +254,7 @@ def test_mtd_prev_window_is_same_day_slice_not_full_month():
 
 
 def test_csv_export_neutralises_formula_injection():
-    from aws_cost_ultra.exporters.csv_export import to_csv_string
+    from costsight.exporters.csv_export import to_csv_string
 
     rows = [{"name": "=HYPERLINK(\"http://evil\")", "cost": 1.0},
             {"name": "+cmd", "cost": 2.0},
@@ -267,7 +267,7 @@ def test_csv_export_neutralises_formula_injection():
 
 
 def test_get_total_cost_does_not_double_count(monkeypatch):
-    from aws_cost_ultra.aws.cost_explorer import CostExplorerClient
+    from costsight.aws.cost_explorer import CostExplorerClient
     from unittest.mock import MagicMock
 
     # A period that (pathologically) carries BOTH a Total and Groups for the
@@ -286,7 +286,7 @@ def test_get_total_cost_does_not_double_count(monkeypatch):
 
 
 def test_cache_bust_prefix_uses_range_bounds(tmp_path):
-    from aws_cost_ultra.web.sqlite_cache import SqliteCache
+    from costsight.web.sqlite_cache import SqliteCache
 
     c = SqliteCache(tmp_path / "c.db")
     c.set("summary:acct:p:mtd", {"v": 1}, ttl_seconds=10_000.0)
@@ -299,7 +299,7 @@ def test_cache_bust_prefix_uses_range_bounds(tmp_path):
 
 
 def _tw(days):
-    from aws_cost_ultra.core.types import TimeWindow
+    from costsight.core.types import TimeWindow
     from datetime import datetime, timedelta, timezone
     now = datetime.now(tz=timezone.utc)
     return TimeWindow(start=now - timedelta(days=days), end=now)

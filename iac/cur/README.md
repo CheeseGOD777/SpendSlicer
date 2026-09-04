@@ -9,13 +9,13 @@ delivers daily Parquet line-items into the bucket.
 cd iac/cur
 terraform init
 terraform apply \
-  -var="bucket_name=acu-cur-<your-account-id>-<region>"
+  -var="bucket_name=costsight-cur-<your-account-id>-<region>"
 ```
 
 First export arrives within 24h. Once it does, run:
 
 ```bash
-aws-cost-ultra cur ingest \
+costsight cur ingest \
   --bucket "$(terraform output -raw bucket)" \
   --prefix "$(terraform output -raw prefix)"
 ```

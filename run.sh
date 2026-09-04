@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "============================================"
-echo "  aws-cost-ultra"
+echo "  costsight"
 echo "============================================"
 echo
 
@@ -30,4 +30,4 @@ echo
 echo "Starting dashboard at http://127.0.0.1:8080/app"
 echo "Press Ctrl+C to stop."
 echo
-python -m aws_cost_ultra.web.app
+python -m costsight.web.app

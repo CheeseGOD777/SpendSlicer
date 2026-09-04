@@ -1,6 +1,6 @@
 import pytest
 
-from aws_cost_ultra.web.middleware import CECallCounter, get_current_counter
+from costsight.web.middleware import CECallCounter, get_current_counter
 
 
 def test_counter_starts_at_zero():
@@ -34,7 +34,7 @@ def test_middleware_writes_headers():
     """End-to-end: a route that increments the counter produces the expected headers."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from aws_cost_ultra.web.middleware import CECountingMiddleware, get_current_counter
+    from costsight.web.middleware import CECountingMiddleware, get_current_counter
 
     app = FastAPI()
     app.add_middleware(CECountingMiddleware)
@@ -55,7 +55,7 @@ def test_middleware_writes_headers():
 def test_middleware_isolates_counters_between_requests():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from aws_cost_ultra.web.middleware import CECountingMiddleware, get_current_counter
+    from costsight.web.middleware import CECountingMiddleware, get_current_counter
 
     app = FastAPI()
     app.add_middleware(CECountingMiddleware)

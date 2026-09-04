@@ -5,7 +5,7 @@ variable "bucket_name" {
 
 variable "export_name" {
   type    = string
-  default = "acu-cur"
+  default = "costsight-cur"
 }
 
 variable "s3_prefix" {
