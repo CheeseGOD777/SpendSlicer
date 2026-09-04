@@ -1,0 +1,57 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please redact real account IDs, ARNs, resource names, and cost
+        figures before posting.** Nothing here is sanitised for you.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the Resources tab
+        2. Select period "Last month"
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Desktop build (.dmg)
+        - Desktop build (.zip / .exe)
+        - pip install costsight
+        - From source (./run.sh)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CostSight version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and Python version
+      placeholder: "macOS 15.1 (arm64), Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output with COSTSIGHT_LOG_LEVEL=debug, redacted.
+      render: shell

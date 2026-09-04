@@ -1,0 +1,54 @@
+name: Wrong number
+description: A cost figure doesn't match AWS
+labels: ["accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Accuracy reports are the most valuable issues this project gets.
+
+        **Redact absolute figures** — ratios and percentage differences are
+        more useful anyway, and safe to post.
+
+        Note that per-resource costs are *estimates* unless you have the CUR
+        warehouse enabled; service totals should match the console exactly.
+  - type: textarea
+    id: mismatch
+    attributes:
+      label: What disagrees with what?
+      placeholder: |
+        Screen: Services tab, "Amazon RDS", period MTD
+        CostSight shows: X
+        Billing console shows: 1.4x that
+    validations:
+      required: true
+  - type: dropdown
+    id: level
+    attributes:
+      label: Which number?
+      options:
+        - Service total (should be exact)
+        - Per-resource cost (estimated without CUR)
+        - Forecast
+        - Waste / audit estimate
+    validations:
+      required: true
+  - type: dropdown
+    id: cur
+    attributes:
+      label: Is the CUR warehouse enabled?
+      options: ["No", "Yes"]
+    validations:
+      required: true
+  - type: input
+    id: period
+    attributes:
+      label: Period selected
+      placeholder: "MTD / 2026-08 / Last 30 days"
+    validations:
+      required: true
+  - type: textarea
+    id: provenance
+    attributes:
+      label: Provenance shown for that figure
+      description: Hover the number in the UI; paste what it reports.
