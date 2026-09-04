@@ -133,7 +133,18 @@ def _warn_if_unauthenticated() -> None:
 
 
 def _kick_prewarm() -> None:
-    get_profile_choices()
+    # get_profile_choices() calls STS (and IAM) once per local AWS profile.
+    # Running it inline held the port closed until every profile resolved —
+    # ~15s here with five profiles, and far worse with an expired SSO session
+    # or a VPN down, where botocore burns its full retry budget per profile.
+    # It only warms a cache that base_ctx populates lazily on first request,
+    # so a daemon thread keeps the benefit without delaying startup.
+    threading.Thread(
+        target=_warm_profile_choices,
+        daemon=True,
+        name="costsight-profiles",
+    ).start()
+
     # Disabled by default to avoid large CE/API fan-out on startup.
     # Enable explicitly for kiosk-like deployments.
     if os.environ.get("COSTSIGHT_ENABLE_PREWARM", "0").lower() in ("1", "true", "yes"):
@@ -144,6 +155,13 @@ def _kick_prewarm() -> None:
             daemon=True,
             name="costsight-prewarm",
         ).start()
+
+
+def _warm_profile_choices() -> None:
+    try:
+        get_profile_choices()
+    except Exception as exc:
+        log.warning("profile warm-up failed: %s", type(exc).__name__, exc_info=True)
 
 
 def _cur_ingest_worker(stop: threading.Event) -> None:
