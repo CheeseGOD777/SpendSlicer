@@ -3,7 +3,7 @@ import datetime as dt
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 
-from costsight.aws.cost_source import CostSource
+from spendslicer.aws.cost_source import CostSource
 
 
 @dataclass

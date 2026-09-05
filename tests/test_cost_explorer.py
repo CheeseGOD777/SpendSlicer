@@ -15,12 +15,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from costsight.aws.cost_explorer import CostExplorerClient
-from costsight.core.filters import (
+from spendslicer.aws.cost_explorer import CostExplorerClient
+from spendslicer.core.filters import (
     CostFilterSpec,
     pre_credit_gross,
 )
-from costsight.core.types import CostMetric, Granularity, TimeWindow
+from spendslicer.core.types import CostMetric, Granularity, TimeWindow
 
 
 def _window(days: int = 7) -> TimeWindow:

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from costsight.exporters.base import ExportResult
-from costsight.exporters.csv_export import export_csv, to_csv_string
-from costsight.exporters.json_export import export_json, to_json_string
-from costsight.exporters.scheduler import (
+from spendslicer.exporters.base import ExportResult
+from spendslicer.exporters.csv_export import export_csv, to_csv_string
+from spendslicer.exporters.json_export import export_json, to_json_string
+from spendslicer.exporters.scheduler import (
     ScheduledExportConfig,
     _report_to_csv_rows,
     run_scheduled_export,

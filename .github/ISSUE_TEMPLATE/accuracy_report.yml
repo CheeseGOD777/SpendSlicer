@@ -18,7 +18,7 @@ body:
       label: What disagrees with what?
       placeholder: |
         Screen: Services tab, "Amazon RDS", period MTD
-        CostSight shows: X
+        SpendSlicer shows: X
         Billing console shows: 1.4x that
     validations:
       required: true

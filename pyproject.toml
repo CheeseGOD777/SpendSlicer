@@ -3,13 +3,13 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "costsight"
+name = "spendslicer"
 dynamic = ["version"]
 description = "Self-hosted AWS cost visibility and waste audit — runs on your machine, against your own AWS credentials."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "CostSight contributors" }]
+authors = [{ name = "Tirth Teraiya" }]
 keywords = ["aws", "cost", "finops", "billing", "audit", "cloud", "devops"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -72,33 +72,33 @@ build = [
     "pyinstaller>=6.6",
 ]
 all = [
-    "costsight[cli,web,exporters,cur]",
+    "spendslicer[cli,web,exporters,cur]",
 ]
 
 [project.scripts]
-costsight = "costsight.cli:main"
-costsight-web = "costsight.web.app:main"
+spendslicer = "spendslicer.cli:main"
+spendslicer-web = "spendslicer.web.app:main"
 
 [project.gui-scripts]
-costsight-desktop = "costsight.desktop:main"
+spendslicer-desktop = "spendslicer.desktop:main"
 
 [project.urls]
-Homepage = "https://github.com/CheeseGOD777/costsight"
-Repository = "https://github.com/CheeseGOD777/costsight"
-Issues = "https://github.com/CheeseGOD777/costsight/issues"
-Changelog = "https://github.com/CheeseGOD777/costsight/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/CheeseGOD777/spendslicer"
+Repository = "https://github.com/CheeseGOD777/spendslicer"
+Issues = "https://github.com/CheeseGOD777/spendslicer/issues"
+Changelog = "https://github.com/CheeseGOD777/spendslicer/blob/main/CHANGELOG.md"
 
 [tool.setuptools.dynamic]
-version = { attr = "costsight.__version__" }
+version = { attr = "spendslicer.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["costsight*"]
+include = ["spendslicer*"]
 
 [tool.setuptools.package-data]
-# The prebuilt React bundle ships inside the wheel so `pip install costsight`
+# The prebuilt React bundle ships inside the wheel so `pip install spendslicer`
 # serves the dashboard without needing Node.
-costsight = ["web/static/**/*"]
+spendslicer = ["web/static/**/*"]
 
 [tool.ruff]
 line-length = 100
@@ -120,7 +120,7 @@ ignore = [
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 filterwarnings = [
-    "error::DeprecationWarning:costsight.*",
+    "error::DeprecationWarning:spendslicer.*",
 ]
 
 [tool.mypy]

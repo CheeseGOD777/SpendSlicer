@@ -4,7 +4,7 @@
 
 Please do not open a public issue. Use GitHub's private reporting:
 
-**[Report a vulnerability](https://github.com/CheeseGOD777/costsight/security/advisories/new)**
+**[Report a vulnerability](https://github.com/CheeseGOD777/spendslicer/security/advisories/new)**
 
 Include what the issue is, how to reproduce it, and what an attacker gets. A
 reply should come within a few days. This is a small volunteer project — there
@@ -13,13 +13,13 @@ prefer otherwise.
 
 ## Threat model
 
-### What CostSight does with your data
+### What SpendSlicer does with your data
 
-Nothing leaves your machine. There is no CostSight server, no telemetry, no
+Nothing leaves your machine. There is no SpendSlicer server, no telemetry, no
 analytics, no crash reporting, and no update check. Every AWS call goes from
 your machine to AWS using your own credentials.
 
-Local state, all under `~/.cache/costsight/`:
+Local state, all under `~/.cache/spendslicer/`:
 
 | File | Contents |
 | --- | --- |
@@ -31,7 +31,7 @@ Delete that directory and nothing of yours remains.
 
 ### Credentials
 
-CostSight reads `~/.aws/credentials` and `~/.aws/config` through boto3's normal
+SpendSlicer reads `~/.aws/credentials` and `~/.aws/config` through boto3's normal
 resolution chain. It **never writes to either**, never logs credential values,
 and never copies them anywhere.
 
@@ -45,7 +45,7 @@ This is the part worth understanding, because it is not the usual "someone
 could read your data" story.
 
 Cost Explorer bills **$0.01 per request** to your AWS account. Anything that
-can reach a CostSight port can therefore spend your money, whether or not it
+can reach a SpendSlicer port can therefore spend your money, whether or not it
 can read the response.
 
 - **Loopback bind by default.** `127.0.0.1` only.
@@ -61,11 +61,11 @@ Cost Explorer spend. The browser's same-origin policy stops that page *reading*
 the reply, and the Origin allow-list blocks state-changing methods — but the
 GET still executes and still bills.
 
-**If you bind anything other than loopback, set `COSTSIGHT_AUTH_TOKEN`.** The
+**If you bind anything other than loopback, set `SPENDSLICER_AUTH_TOKEN`.** The
 server logs a warning at startup when it is unset.
 
 ```bash
-export COSTSIGHT_AUTH_TOKEN="$(openssl rand -base64 32)"
+export SPENDSLICER_AUTH_TOKEN="$(openssl rand -base64 32)"
 ```
 
 ### Defenses in place
@@ -85,8 +85,8 @@ export COSTSIGHT_AUTH_TOKEN="$(openssl rand -base64 32)"
 ### Out of scope
 
 - **A compromised machine.** If an attacker already has your user account, they
-  have your AWS credentials directly and do not need CostSight.
-- **AWS-side permissions.** CostSight can only do what the profile's IAM policy
+  have your AWS credentials directly and do not need SpendSlicer.
+- **AWS-side permissions.** SpendSlicer can only do what the profile's IAM policy
   allows. Grant read-only.
 - **The unsigned desktop builds.** They are currently unsigned, which means the
   OS cannot verify they came from us. Verify the published SHA256, or build from

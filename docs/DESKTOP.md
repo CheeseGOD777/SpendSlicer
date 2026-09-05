@@ -1,6 +1,6 @@
 # Desktop builds
 
-CostSight ships as a native app for macOS and Windows. It is the same FastAPI
+SpendSlicer ships as a native app for macOS and Windows. It is the same FastAPI
 server and React dashboard as the self-hosted version, wrapped so you can
 double-click it: the app binds a loopback port the OS picks, starts the server
 in-process, and renders the dashboard in the platform's own webview (WebKit on
@@ -9,18 +9,18 @@ macOS, WebView2 on Windows).
 ## Install
 
 Download the file for your platform from
-[Releases](https://github.com/CheeseGOD777/costsight/releases).
+[Releases](https://github.com/CheeseGOD777/spendslicer/releases).
 
 | Platform | File | Notes |
 | --- | --- | --- |
-| macOS, Apple Silicon (M1–M4) | `CostSight-<version>-macos-arm64.dmg` | |
-| macOS, Intel | `CostSight-<version>-macos-x86_64.dmg` | |
-| Windows 10/11 x64 | `CostSight-<version>-windows-x64.zip` | Needs WebView2 (preinstalled on Win11 and current Win10) |
+| macOS, Apple Silicon (M1–M4) | `SpendSlicer-<version>-macos-arm64.dmg` | |
+| macOS, Intel | `SpendSlicer-<version>-macos-x86_64.dmg` | |
+| Windows 10/11 x64 | `SpendSlicer-<version>-windows-x64.zip` | Needs WebView2 (preinstalled on Win11 and current Win10) |
 
 Verify the download against the `.sha256` file published alongside it:
 
 ```bash
-shasum -a 256 -c CostSight-0.3.0-macos-arm64.dmg.sha256
+shasum -a 256 -c SpendSlicer-0.3.0-macos-arm64.dmg.sha256
 ```
 
 ---
@@ -40,15 +40,15 @@ flag and triggers no warning.
 
 ### macOS
 
-Gatekeeper reports unsigned downloaded apps as *"CostSight is damaged and can't
+Gatekeeper reports unsigned downloaded apps as *"SpendSlicer is damaged and can't
 be opened. You should move it to the Trash."* The app is not damaged; macOS
 gives that exact message for any app carrying a quarantine attribute without a
 valid signature.
 
-After dragging CostSight to Applications, clear the flag once:
+After dragging SpendSlicer to Applications, clear the flag once:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/CostSight.app
+xattr -dr com.apple.quarantine /Applications/SpendSlicer.app
 ```
 
 Then open it normally. You only need to do this once per install.
@@ -61,27 +61,27 @@ binaries outright, in which case building from source is the way through.
 
 ---
 
-## Where CostSight puts things
+## Where SpendSlicer puts things
 
 Everything lives under one directory, and nothing is written to the registry or
 to system locations:
 
 | Path | Contents |
 | --- | --- |
-| `~/.cache/costsight/cache.db` | SQLite cache of Cost Explorer responses |
-| `~/.cache/costsight/cur.duckdb` | CUR warehouse, if configured |
-| `~/.cache/costsight/webview/` | Webview localStorage (the dashboard's client-side cache) |
+| `~/.cache/spendslicer/cache.db` | SQLite cache of Cost Explorer responses |
+| `~/.cache/spendslicer/cur.duckdb` | CUR warehouse, if configured |
+| `~/.cache/spendslicer/webview/` | Webview localStorage (the dashboard's client-side cache) |
 
-To uninstall: delete the app and remove `~/.cache/costsight`. That's it.
+To uninstall: delete the app and remove `~/.cache/spendslicer`. That's it.
 
-Credentials are read from `~/.aws/credentials` and `~/.aws/config`. CostSight
+Credentials are read from `~/.aws/credentials` and `~/.aws/config`. SpendSlicer
 never writes to either.
 
 ---
 
 ## How the desktop build differs from self-hosting
 
-| | Desktop app | `costsight-web` |
+| | Desktop app | `spendslicer-web` |
 | --- | --- | --- |
 | Port | OS-assigned, ephemeral | 8080 |
 | Auth | Random token minted per launch | None by default |
@@ -110,8 +110,8 @@ Building locally produces an app with no quarantine flag and no warnings.
 ### macOS
 
 ```bash
-git clone https://github.com/CheeseGOD777/costsight.git
-cd costsight
+git clone https://github.com/CheeseGOD777/spendslicer.git
+cd spendslicer
 
 python3 -m venv venv && source venv/bin/activate
 pip install -e ".[web,cur,exporters,desktop,build]" Pillow
@@ -119,14 +119,14 @@ pip install -e ".[web,cur,exporters,desktop,build]" Pillow
 ./packaging/build_macos.sh
 ```
 
-Output: `dist/CostSight-<version>-macos-<arch>.dmg`, plus
-`dist/CostSight.app` which you can run directly.
+Output: `dist/SpendSlicer-<version>-macos-<arch>.dmg`, plus
+`dist/SpendSlicer.app` which you can run directly.
 
 ### Windows
 
 ```powershell
-git clone https://github.com/CheeseGOD777/costsight.git
-cd costsight
+git clone https://github.com/CheeseGOD777/spendslicer.git
+cd spendslicer
 
 python -m venv venv
 venv\Scripts\activate
@@ -135,21 +135,21 @@ pip install -e ".[web,cur,exporters,desktop,build]" Pillow
 powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
 ```
 
-Output: `dist\CostSight-<version>-windows-x64.zip`, plus
-`dist\CostSight\CostSight.exe`.
+Output: `dist\SpendSlicer-<version>-windows-x64.zip`, plus
+`dist\SpendSlicer\SpendSlicer.exe`.
 
 ### What the build does
 
 1. `npm ci && npm run build` in `frontend/`, which writes the bundle into
-   `costsight/web/static`
+   `spendslicer/web/static`
 2. `packaging/make_icons.py` draws the icon and emits `.png`/`.icns`/`.ico`
-3. `pyinstaller packaging/costsight.spec` freezes everything into one directory
+3. `pyinstaller packaging/spendslicer.spec` freezes everything into one directory
 4. `hdiutil` (macOS) or `Compress-Archive` (Windows) packages it
 
 Expect roughly 250 MB unpacked. Two thirds of that is PyArrow (~118 MB) and
 DuckDB (~48 MB), which back the optional CUR warehouse. If you don't need CUR,
 drop `pyarrow` and `duckdb` from the `collect_all` loop in
-`packaging/costsight.spec` and the build lands around 90 MB.
+`packaging/spendslicer.spec` and the build lands around 90 MB.
 
 ---
 
@@ -193,19 +193,19 @@ certificate builds reputation over time.
 
 **Window opens blank.** The server is still starting. It should take about a
 second; if it hangs, run the binary from a terminal with
-`COSTSIGHT_LOG_LEVEL=debug` to see why.
+`SPENDSLICER_LOG_LEVEL=debug` to see why.
 
 **"The local server did not start within 45s."** Usually a port or firewall
-restriction. Force a specific port with `COSTSIGHT_PORT=8080`.
+restriction. Force a specific port with `SPENDSLICER_PORT=8080`.
 
-**No AWS profiles listed.** CostSight reads `~/.aws/credentials` and
+**No AWS profiles listed.** SpendSlicer reads `~/.aws/credentials` and
 `~/.aws/config`. Confirm with `aws configure list-profiles`. For SSO profiles,
 run `aws sso login --profile <name>` first.
 
 **macOS: "damaged and can't be opened" persists.** Confirm the flag is gone:
 
 ```bash
-xattr -l /Applications/CostSight.app
+xattr -l /Applications/SpendSlicer.app
 ```
 
 If `com.apple.quarantine` is still listed, re-run the `xattr -dr` command with
@@ -214,5 +214,5 @@ If `com.apple.quarantine` is still listed, re-run the `xattr -dr` command with
 **Windows: app closes immediately.** Usually a missing WebView2 runtime on an
 older Windows 10 build. Install the
 [Evergreen runtime](https://developer.microsoft.com/microsoft-edge/webview2/),
-or run `CostSight.exe` from a terminal — it falls back to your default browser
+or run `SpendSlicer.exe` from a terminal — it falls back to your default browser
 when no webview is available.

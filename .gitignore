@@ -14,8 +14,8 @@ venv/
 
 # ─── Node ───────────────────────────────────────────────────────────────
 node_modules/
-# The built dashboard is committed at costsight/web/static so that neither
-# `pip install costsight` nor ./run.sh needs a Node toolchain. Vite no longer
+# The built dashboard is committed at spendslicer/web/static so that neither
+# `pip install spendslicer` nor ./run.sh needs a Node toolchain. Vite no longer
 # writes to frontend/dist; ignore it so stale local copies never get staged.
 frontend/dist/
 

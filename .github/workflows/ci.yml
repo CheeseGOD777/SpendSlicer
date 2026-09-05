@@ -59,16 +59,16 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      # costsight/web/static is committed so that `pip install costsight` and
+      # spendslicer/web/static is committed so that `pip install spendslicer` and
       # ./run.sh work without a Node toolchain. If a PR changes frontend/src
       # without rebuilding, the committed bundle goes stale and users get the
       # old dashboard. Vite's filenames are content-hashed, so a real source
       # change always shows up here.
       - name: Committed bundle is up to date
         run: |
-          if ! git diff --quiet -- costsight/web/static; then
-            echo "::error::costsight/web/static is stale. Run 'cd frontend && npm run build' and commit the result."
-            git diff --stat -- costsight/web/static
+          if ! git diff --quiet -- spendslicer/web/static; then
+            echo "::error::spendslicer/web/static is stale. Run 'cd frontend && npm run build' and commit the result."
+            git diff --stat -- spendslicer/web/static
             exit 1
           fi
           echo "Bundle matches frontend/src."
@@ -107,4 +107,4 @@ jobs:
       # Catches spec rot — a missing hidden import or uncollected data file —
       # on every PR rather than at tag time.
       - name: PyInstaller
-        run: pyinstaller packaging/costsight.spec --noconfirm
+        run: pyinstaller packaging/spendslicer.spec --noconfirm

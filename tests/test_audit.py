@@ -6,15 +6,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from costsight.audit.budgets import BudgetStatus, get_budget_findings
-from costsight.audit.idle import (
+from spendslicer.audit.budgets import BudgetStatus, get_budget_findings
+from spendslicer.audit.idle import (
     find_idle_resources,
     find_stopped_ec2,
     find_unattached_ebs,
     find_unused_eips,
 )
-from costsight.audit.runner import AuditResult, run_audit
-from costsight.audit.untagged import scan_untagged
+from spendslicer.audit.runner import AuditResult, run_audit
+from spendslicer.audit.untagged import scan_untagged
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,7 +55,7 @@ def test_scan_ec2_flags_missing_tags():
         }
     ]
 
-    from costsight.audit.untagged import scan_ec2
+    from spendslicer.audit.untagged import scan_ec2
     results = scan_ec2(session, "us-east-1", ["Name", "Team", "CostCenter"])
     assert len(results) == 1
     assert results[0].resource_id == "i-abc123"
@@ -85,7 +85,7 @@ def test_scan_ec2_skips_terminated_instances():
         }
     ]
 
-    from costsight.audit.untagged import scan_ec2
+    from spendslicer.audit.untagged import scan_ec2
     results = scan_ec2(session, "us-east-1", ["Team"])
     assert results == []
 

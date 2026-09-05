@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Build CostSight.app and wrap it in a distributable .dmg.
+# Build SpendSlicer.app and wrap it in a distributable .dmg.
 #
 #   ./packaging/build_macos.sh
 #
-# Output: dist/CostSight-<version>-macos-<arch>.dmg
+# Output: dist/SpendSlicer-<version>-macos-<arch>.dmg
 #
 # The build is UNSIGNED. Gatekeeper will refuse to open it on first launch
-# ("CostSight is damaged and can't be opened"), because an unsigned, un-notarised
+# ("SpendSlicer is damaged and can't be opened"), because an unsigned, un-notarised
 # app downloaded from the internet carries a quarantine attribute. Users clear it
 # with the command printed at the end; see docs/DESKTOP.md. To sign instead, set
 # CODESIGN_IDENTITY and the notarytool variables documented in that file.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="CostSight"
-VERSION="$(python3 -c 'import re,pathlib; print(re.search(r"__version__ = \"([^\"]+)\"", pathlib.Path("costsight/__init__.py").read_text()).group(1))')"
+APP_NAME="SpendSlicer"
+VERSION="$(python3 -c 'import re,pathlib; print(re.search(r"__version__ = \"([^\"]+)\"", pathlib.Path("spendslicer/__init__.py").read_text()).group(1))')"
 ARCH="$(uname -m)"
 DMG="dist/${APP_NAME}-${VERSION}-macos-${ARCH}.dmg"
 
@@ -28,7 +28,7 @@ python3 packaging/make_icons.py
 
 echo "==> PyInstaller"
 rm -rf build dist
-COSTSIGHT_VERSION="${VERSION}" pyinstaller packaging/costsight.spec --noconfirm
+SPENDSLICER_VERSION="${VERSION}" pyinstaller packaging/spendslicer.spec --noconfirm
 
 APP="dist/${APP_NAME}.app"
 [ -d "$APP" ] || { echo "ERROR: $APP was not produced"; exit 1; }

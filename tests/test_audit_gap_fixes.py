@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 # ---------------------------------------------------------------------------
 
 def test_get_session_rejects_unknown_profile(monkeypatch):
-    from costsight.web import deps
+    from spendslicer.web import deps
     monkeypatch.setattr(deps, "list_profiles", lambda: ["prod", "dev"])
     with pytest.raises(HTTPException) as ei:
         deps.get_session("evil; rm -rf /")
@@ -24,7 +24,7 @@ def test_get_session_rejects_unknown_profile(monkeypatch):
 
 
 def test_get_session_allows_known_and_default(monkeypatch):
-    from costsight.web import deps
+    from spendslicer.web import deps
     monkeypatch.setattr(deps, "list_profiles", lambda: ["prod"])
     # Decouple from the local ~/.aws config: a validated profile whose session
     # builds successfully must pass through unchanged.
@@ -39,7 +39,7 @@ def test_get_session_does_not_silently_fall_back_to_default(monkeypatch):
     # get_session must NOT silently return boto3.Session() (the default
     # credentials may resolve to a DIFFERENT account, whose costs would then be
     # cached under this profile's keys). It must raise instead.
-    from costsight.web import deps
+    from spendslicer.web import deps
 
     monkeypatch.setattr(deps, "list_profiles", lambda: ["prod"])
 
@@ -54,11 +54,11 @@ def test_get_session_does_not_silently_fall_back_to_default(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # Minimal app exercising the real require_auth dependency (avoids heavy
-# startup events in costsight.web.app:app).
+# startup events in spendslicer.web.app:app).
 # ---------------------------------------------------------------------------
 
 def _client():
-    from costsight.web.app import require_auth
+    from spendslicer.web.app import require_auth
     app = FastAPI(dependencies=[Depends(require_auth)])
 
     @app.get("/api/probe")
@@ -77,15 +77,15 @@ def _client():
 # ---------------------------------------------------------------------------
 
 def test_token_required_when_configured(monkeypatch):
-    monkeypatch.setenv("COSTSIGHT_AUTH_TOKEN", "s3cret")
+    monkeypatch.setenv("SPENDSLICER_AUTH_TOKEN", "s3cret")
     c = _client()
     assert c.get("/api/probe").status_code == 401
-    assert c.get("/api/probe", headers={"X-CostSight-Token": "wrong"}).status_code == 401
-    assert c.get("/api/probe", headers={"X-CostSight-Token": "s3cret"}).status_code == 200
+    assert c.get("/api/probe", headers={"X-SpendSlicer-Token": "wrong"}).status_code == 401
+    assert c.get("/api/probe", headers={"X-SpendSlicer-Token": "s3cret"}).status_code == 200
 
 
 def test_no_token_means_open(monkeypatch):
-    monkeypatch.delenv("COSTSIGHT_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SPENDSLICER_AUTH_TOKEN", raising=False)
     c = _client()
     assert c.get("/api/probe").status_code == 200
 
@@ -95,7 +95,7 @@ def test_no_token_means_open(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_csrf_rejects_cross_origin_post(monkeypatch):
-    monkeypatch.delenv("COSTSIGHT_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SPENDSLICER_AUTH_TOKEN", raising=False)
     c = _client()
     r = c.post("/api/probe", headers={"Origin": "http://evil.example", "Host": "localhost"})
     assert r.status_code == 403
@@ -103,7 +103,7 @@ def test_csrf_rejects_cross_origin_post(monkeypatch):
 
 def test_csrf_rejects_spoofed_host(monkeypatch):
     # DNS-rebinding style: attacker sets both Host and Origin to their domain.
-    monkeypatch.delenv("COSTSIGHT_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SPENDSLICER_AUTH_TOKEN", raising=False)
     c = _client()
     r = c.post("/api/probe", headers={"Origin": "http://evil.example", "Host": "evil.example"})
     assert r.status_code == 403
@@ -111,14 +111,14 @@ def test_csrf_rejects_spoofed_host(monkeypatch):
 
 def test_csrf_rejects_originless_post_when_unauthenticated(monkeypatch):
     # No Origin/Referer AND no token -> must be rejected (was silently allowed).
-    monkeypatch.delenv("COSTSIGHT_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SPENDSLICER_AUTH_TOKEN", raising=False)
     c = _client()
     r = c.post("/api/probe", headers={"Host": "localhost"})
     assert r.status_code == 403
 
 
 def test_csrf_allows_same_origin_localhost_post(monkeypatch):
-    monkeypatch.delenv("COSTSIGHT_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SPENDSLICER_AUTH_TOKEN", raising=False)
     c = _client()
     r = c.post("/api/probe", headers={"Origin": "http://localhost:8080", "Host": "localhost:8080"})
     assert r.status_code == 200
@@ -126,14 +126,14 @@ def test_csrf_allows_same_origin_localhost_post(monkeypatch):
 
 def test_csrf_allows_originless_post_with_valid_token(monkeypatch):
     # Authenticated non-browser client (curl with token) may POST without Origin.
-    monkeypatch.setenv("COSTSIGHT_AUTH_TOKEN", "s3cret")
+    monkeypatch.setenv("SPENDSLICER_AUTH_TOKEN", "s3cret")
     c = _client()
-    r = c.post("/api/probe", headers={"Host": "localhost", "X-CostSight-Token": "s3cret"})
+    r = c.post("/api/probe", headers={"Host": "localhost", "X-SpendSlicer-Token": "s3cret"})
     assert r.status_code == 200
 
 
 def test_get_not_subject_to_csrf(monkeypatch):
-    monkeypatch.delenv("COSTSIGHT_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("SPENDSLICER_AUTH_TOKEN", raising=False)
     c = _client()
     assert c.get("/api/probe", headers={"Host": "localhost"}).status_code == 200
 
@@ -143,7 +143,7 @@ def test_get_not_subject_to_csrf(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_cap_usage_types_limits_and_preserves_total():
-    from costsight.web.routes.cost import _cap_usage_types
+    from spendslicer.web.routes.cost import _cap_usage_types
 
     usage = {f"USE1-Type{i}": float(i) for i in range(1, 101)}  # 100 distinct types
     rows = _cap_usage_types(usage, cap=10)
@@ -160,7 +160,7 @@ def test_cap_usage_types_limits_and_preserves_total():
 
 
 def test_cap_usage_types_no_remainder_when_under_cap():
-    from costsight.web.routes.cost import _cap_usage_types
+    from spendslicer.web.routes.cost import _cap_usage_types
     usage = {"A": 3.0, "B": 1.0}
     rows = _cap_usage_types(usage, cap=10)
     assert len(rows) == 2
@@ -172,8 +172,8 @@ def test_cap_usage_types_no_remainder_when_under_cap():
 # ---------------------------------------------------------------------------
 
 def test_rescale_skipped_for_incomplete_service():
-    from costsight.resources import runner
-    from costsight.resources.base import AttributedResource
+    from spendslicer.resources import runner
+    from spendslicer.resources.base import AttributedResource
 
     def mk(cost):
         return AttributedResource(
@@ -197,7 +197,7 @@ def test_rescale_skipped_for_incomplete_service():
 # ---------------------------------------------------------------------------
 
 def test_live_instance_names_uses_prefetched_instances():
-    from costsight.resources import ec2
+    from spendslicer.resources import ec2
 
     class _Boom:
         def get_paginator(self, *a, **k):

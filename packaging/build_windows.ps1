@@ -1,22 +1,22 @@
-# Build CostSight.exe and wrap it in a distributable .zip.
+# Build SpendSlicer.exe and wrap it in a distributable .zip.
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
 #
-# Output: dist\CostSight-<version>-windows-x64.zip
+# Output: dist\SpendSlicer-<version>-windows-x64.zip
 #
 # The build is UNSIGNED. SmartScreen will show "Windows protected your PC" on
 # first run; users click "More info" then "Run anyway". See docs/DESKTOP.md.
 # To sign instead, set WINDOWS_CERT_FILE and WINDOWS_CERT_PASSWORD.
 #
-# A .zip rather than an installer: CostSight keeps all its state in
-# %USERPROFILE%\.cache\costsight and writes nothing to the registry, so there is
+# A .zip rather than an installer: SpendSlicer keeps all its state in
+# %USERPROFILE%\.cache\spendslicer and writes nothing to the registry, so there is
 # nothing for an uninstaller to undo. Unzip and run.
 
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
-$AppName = "CostSight"
-$Version = (Select-String -Path "costsight\__init__.py" -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
+$AppName = "SpendSlicer"
+$Version = (Select-String -Path "spendslicer\__init__.py" -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
 $Zip = "dist\$AppName-$Version-windows-x64.zip"
 
 Write-Host "==> Building $AppName $Version (x64)"
@@ -32,8 +32,8 @@ python packaging\make_icons.py
 
 Write-Host "==> PyInstaller"
 Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
-$env:COSTSIGHT_VERSION = $Version
-pyinstaller packaging\costsight.spec --noconfirm
+$env:SPENDSLICER_VERSION = $Version
+pyinstaller packaging\spendslicer.spec --noconfirm
 
 $ExePath = "dist\$AppName\$AppName.exe"
 if (-not (Test-Path $ExePath)) { throw "ERROR: $ExePath was not produced" }

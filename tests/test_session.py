@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from costsight.aws.session import (
+from spendslicer.aws.session import (
     ProfileBundle,
     accessible_regions,
     account_alias_for,
@@ -122,10 +122,10 @@ def test_profile_bundle_display_name_falls_back_to_profile():
 # ---------------------------------------------------------------------------
 
 def test_load_profile_bundle_uses_provided_regions():
-    with patch("costsight.aws.session.make_session") as mock_session, \
-         patch("costsight.aws.session.account_id_for", return_value="123456789012"), \
-         patch("costsight.aws.session.account_alias_for", return_value="acme"), \
-         patch("costsight.aws.session.accessible_regions") as mock_regions:
+    with patch("spendslicer.aws.session.make_session") as mock_session, \
+         patch("spendslicer.aws.session.account_id_for", return_value="123456789012"), \
+         patch("spendslicer.aws.session.account_alias_for", return_value="acme"), \
+         patch("spendslicer.aws.session.accessible_regions") as mock_regions:
         mock_session.return_value = MagicMock()
         bundle = load_profile_bundle("dev", regions=["us-east-1", "eu-west-1"])
         mock_regions.assert_not_called()  # provided regions bypass the discovery call

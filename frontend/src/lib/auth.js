@@ -2,8 +2,8 @@
  * Shared-secret token plumbing for the API client.
  *
  * The backend accepts a token on every money-spending route via the
- * `X-CostSight-Token` header or a `?token=` query parameter. Self-hosted users
- * usually leave `COSTSIGHT_AUTH_TOKEN` unset (the loopback-only default), in
+ * `X-SpendSlicer-Token` header or a `?token=` query parameter. Self-hosted users
+ * usually leave `SPENDSLICER_AUTH_TOKEN` unset (the loopback-only default), in
  * which case everything here is a no-op and no header is sent.
  *
  * The desktop builds always set it: the launcher mints a random token per run
@@ -18,7 +18,7 @@
  * it does not linger in history or in any copied link.
  */
 
-const STORAGE_KEY = "costsight.token";
+const STORAGE_KEY = "spendslicer.token";
 
 const readStored = () => {
   try {
@@ -57,7 +57,7 @@ if (typeof window !== "undefined") {
 }
 
 /** Headers to merge into every API request. Empty when no token is in play. */
-export const authHeaders = () => (token ? { "X-CostSight-Token": token } : {});
+export const authHeaders = () => (token ? { "X-SpendSlicer-Token": token } : {});
 
 /** Append the token to a URL — for navigations that can't carry a header. */
 export const withToken = (url) => {

@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: costsight-${{ matrix.os }}-${{ matrix.arch }}
+          name: spendslicer-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             dist/*.dmg
             dist/*.zip
@@ -118,7 +118,7 @@ jobs:
             ## Install
 
             **macOS** — download the `.dmg` for your chip (`arm64` for Apple
-            Silicon, `x86_64` for Intel), open it, drag CostSight to
+            Silicon, `x86_64` for Intel), open it, drag SpendSlicer to
             Applications.
 
             These builds are **not signed or notarised yet**, so Gatekeeper
@@ -127,24 +127,24 @@ jobs:
             quarantine flag once:
 
             ```
-            xattr -dr com.apple.quarantine /Applications/CostSight.app
+            xattr -dr com.apple.quarantine /Applications/SpendSlicer.app
             ```
 
             **Windows** — download the `.zip`, extract it anywhere, run
-            `CostSight.exe`. SmartScreen will warn on first run because the
+            `SpendSlicer.exe`. SmartScreen will warn on first run because the
             binary is unsigned: click **More info** → **Run anyway**.
 
             **From source** (no binary, no warnings):
 
             ```
-            pip install costsight[web,cur]
-            costsight-web
+            pip install spendslicer[web,cur]
+            spendslicer-web
             ```
 
             Verify a download with the matching `.sha256` file.
 
             ## What it does
 
-            CostSight runs entirely on your machine against your own AWS CLI
+            SpendSlicer runs entirely on your machine against your own AWS CLI
             profiles. No account linking, no telemetry, no cost data leaving
             your laptop.

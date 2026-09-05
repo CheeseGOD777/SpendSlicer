@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the CostSight app icons from code.
+"""Generate the SpendSlicer app icons from code.
 
 Producing the icons programmatically keeps them reproducible in CI and avoids
 committing binary art nobody can edit. Run it whenever the mark changes:

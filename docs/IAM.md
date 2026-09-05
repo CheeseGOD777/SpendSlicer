@@ -1,6 +1,6 @@
 # IAM permissions
 
-CostSight is **strictly read-only**. It issues no `Create*`, `Put*`, `Update*`,
+SpendSlicer is **strictly read-only**. It issues no `Create*`, `Put*`, `Update*`,
 `Modify*`, `Delete*`, or `Terminate*` call anywhere in the codebase. The one
 thing it writes is a local SQLite/DuckDB cache on your own disk.
 
@@ -89,7 +89,7 @@ rather grant only what is used, the policy below is the exact set.
 
 ## What breaks without each permission
 
-CostSight degrades feature by feature rather than failing outright. A missing
+SpendSlicer degrades feature by feature rather than failing outright. A missing
 permission produces a warning banner on the affected panel; the rest keeps
 working.
 
@@ -131,16 +131,16 @@ the bucket holding the Parquet exports — scoped to that bucket, not `*`:
 ## Cost Explorer is a paid API
 
 `ce:*` calls bill **$0.01 each**, on the payer account. This is an AWS charge,
-not something CostSight adds. Granting these permissions grants the ability to
+not something SpendSlicer adds. Granting these permissions grants the ability to
 spend money, which is why the app caches aggressively, reports spend per
 response in the `X-CE-Calls-Spent` header, and shows a running session meter.
 
-For the same reason, do not expose a CostSight instance on a network without
-setting `COSTSIGHT_AUTH_TOKEN`.
+For the same reason, do not expose a SpendSlicer instance on a network without
+setting `SPENDSLICER_AUTH_TOKEN`.
 
 ## Multi-account setups
 
-CostSight reads every profile in your AWS config, so the usual patterns work
+SpendSlicer reads every profile in your AWS config, so the usual patterns work
 without any extra support in the app:
 
 - **Organizations** — point one profile at the management account. Cost

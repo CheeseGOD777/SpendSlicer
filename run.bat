@@ -1,9 +1,9 @@
 @echo off
-REM Run CostSight from a source checkout: create a venv, install, serve.
-REM Prefer the desktop build or `pip install costsight[web,cur]` for normal use.
+REM Run SpendSlicer from a source checkout: create a venv, install, serve.
+REM Prefer the desktop build or `pip install spendslicer[web,cur]` for normal use.
 cd /d "%~dp0"
 echo ============================================
-echo   CostSight
+echo   SpendSlicer
 echo ============================================
 echo.
 
@@ -35,5 +35,5 @@ echo.
 echo Starting dashboard at http://127.0.0.1:8080/app
 echo Press Ctrl+C to stop.
 echo.
-REM Set COSTSIGHT_RELOAD=1 to enable uvicorn autoreload while hacking.
-python -m costsight.web.app
+REM Set SPENDSLICER_RELOAD=1 to enable uvicorn autoreload while hacking.
+python -m spendslicer.web.app

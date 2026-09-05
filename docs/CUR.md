@@ -1,7 +1,7 @@
 # CUR warehouse (optional)
 
 Without CUR, per-resource costs are **estimates**: Cost Explorer gives exact
-service totals, and CostSight splits them across resources using running hours
+service totals, and SpendSlicer splits them across resources using running hours
 and list prices. Good enough to find the expensive things; not exact.
 
 With CUR, per-resource costs are **exact billed line items**, and the estimation
@@ -34,7 +34,7 @@ daily Parquet line items lives in [`iac/cur/`](../iac/cur):
 ```bash
 cd iac/cur
 terraform init
-terraform apply -var="bucket_name=costsight-cur-<account-id>-<region>"
+terraform apply -var="bucket_name=spendslicer-cur-<account-id>-<region>"
 ```
 
 Prefer the console? Billing → Data Exports → Create → **Standard data export**,
@@ -47,28 +47,28 @@ AWS writes the first export within 24 hours. Nothing to do until it lands.
 ### 3. Ingest
 
 ```bash
-costsight cur ingest \
+spendslicer cur ingest \
   --bucket "$(terraform output -raw bucket)" \
   --prefix "$(terraform output -raw prefix)"
 
-costsight cur status     # what's loaded
-costsight cur reset      # wipe the local database
+spendslicer cur status     # what's loaded
+spendslicer cur reset      # wipe the local database
 ```
 
 This downloads new Parquet partitions into
-`~/.cache/costsight/parquet` and registers them in a DuckDB database at
-`~/.cache/costsight/cur.duckdb`. Only new partitions are fetched on re-runs.
+`~/.cache/spendslicer/parquet` and registers them in a DuckDB database at
+`~/.cache/spendslicer/cur.duckdb`. Only new partitions are fetched on re-runs.
 
 ### 4. Point the server at it
 
 ```bash
-export COSTSIGHT_CUR_BUCKET="costsight-cur-123456789012-us-east-1"
-export COSTSIGHT_CUR_PREFIX="cur/"
-costsight-web
+export SPENDSLICER_CUR_BUCKET="spendslicer-cur-123456789012-us-east-1"
+export SPENDSLICER_CUR_PREFIX="cur/"
+spendslicer-web
 ```
 
-With `COSTSIGHT_CUR_BUCKET` set, a background worker re-ingests every 6 hours
-(`COSTSIGHT_CUR_INGEST_INTERVAL_SECONDS`). CostSight then uses CUR for any
+With `SPENDSLICER_CUR_BUCKET` set, a background worker re-ingests every 6 hours
+(`SPENDSLICER_CUR_INGEST_INTERVAL_SECONDS`). SpendSlicer then uses CUR for any
 query the warehouse can answer and falls back to Cost Explorer for the rest —
 `cost_source.py` makes that choice per query, so there is no cliff when CUR
 lacks a period.
@@ -101,7 +101,7 @@ local and free. The Data Export itself is free.
 
 ```bash
 cd iac/cur && terraform destroy
-costsight cur reset
+spendslicer cur reset
 ```
 
 ## Troubleshooting
@@ -113,9 +113,9 @@ objects exist under the prefix: `aws s3 ls s3://YOUR-BUCKET/cur/ --recursive`.
 prefix exactly, and the export must be Parquet — CSV is not read.
 
 **`ModuleNotFoundError: duckdb`.** The `cur` extra is not installed:
-`pip install "costsight[cur]"`. The desktop builds bundle it already.
+`pip install "spendslicer[cur]"`. The desktop builds bundle it already.
 
 **Numbers differ from Cost Explorer.** Expected, and CUR is the more precise of
 the two. CUR carries full line-item detail while Cost Explorer aggregates;
-amortisation and credit handling can also differ. CostSight labels which source
+amortisation and credit handling can also differ. SpendSlicer labels which source
 produced each figure.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from costsight.core.time_windows import (
+from spendslicer.core.time_windows import (
     current_month,
     last_month,
     last_n_days,
@@ -65,7 +65,7 @@ def test_trailing_months_rejects_zero():
 def _freeze_today(monkeypatch, y, m, d):
     from datetime import datetime, timezone
 
-    from costsight.core import time_windows as tw
+    from spendslicer.core import time_windows as tw
     monkeypatch.setattr(
         tw, "_utc_today_midnight",
         lambda: datetime(y, m, d, tzinfo=timezone.utc),
@@ -73,7 +73,7 @@ def _freeze_today(monkeypatch, y, m, d):
 
 
 def test_remainder_is_none_on_last_day_of_month(monkeypatch):
-    from costsight.core import time_windows as tw
+    from spendslicer.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 7, 31)
     assert tw.remainder_of_current_month() is None
 
@@ -81,13 +81,13 @@ def test_remainder_is_none_on_last_day_of_month(monkeypatch):
 def test_remainder_is_none_on_last_day_of_november(monkeypatch):
     # Nov 30: tomorrow is Dec 1 — the old code took the month==12 branch and
     # forecast all of December.
-    from costsight.core import time_windows as tw
+    from spendslicer.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 11, 30)
     assert tw.remainder_of_current_month() is None
 
 
 def test_remainder_is_none_on_dec_31(monkeypatch):
-    from costsight.core import time_windows as tw
+    from spendslicer.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 12, 31)
     assert tw.remainder_of_current_month() is None
 
@@ -95,7 +95,7 @@ def test_remainder_is_none_on_dec_31(monkeypatch):
 def test_remainder_mid_month_covers_tomorrow_to_month_end(monkeypatch):
     from datetime import datetime, timezone
 
-    from costsight.core import time_windows as tw
+    from spendslicer.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 7, 7)
     w = tw.remainder_of_current_month()
     assert w.start == datetime(2026, 7, 8, tzinfo=timezone.utc)
@@ -105,7 +105,7 @@ def test_remainder_mid_month_covers_tomorrow_to_month_end(monkeypatch):
 def test_remainder_mid_december_stays_in_december(monkeypatch):
     from datetime import datetime, timezone
 
-    from costsight.core import time_windows as tw
+    from spendslicer.core import time_windows as tw
     _freeze_today(monkeypatch, 2026, 12, 15)
     w = tw.remainder_of_current_month()
     assert w.start == datetime(2026, 12, 16, tzinfo=timezone.utc)

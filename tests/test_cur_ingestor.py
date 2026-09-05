@@ -5,12 +5,12 @@ from unittest.mock import MagicMock
 import duckdb
 import pytest
 
-from costsight.cur.ingestor import CurIngestor
+from spendslicer.cur.ingestor import CurIngestor
 
 
 @pytest.fixture
 def db(tmp_path: Path) -> duckdb.DuckDBPyConnection:
-    from costsight.cur.schema import connect
+    from spendslicer.cur.schema import connect
     return connect(tmp_path / "cur.duckdb")
 
 
@@ -41,7 +41,7 @@ def test_ingestor_handles_empty_bucket(tmp_path: Path, db):
 
 
 def test_ingestor_extracts_billing_period_and_assembly_from_key():
-    from costsight.cur.ingestor import parse_partition_key
-    bp, asm = parse_partition_key("costsight-cur/data/BILLING_PERIOD=2026-05/abc-def/part-0.snappy.parquet")
+    from spendslicer.cur.ingestor import parse_partition_key
+    bp, asm = parse_partition_key("spendslicer-cur/data/BILLING_PERIOD=2026-05/abc-def/part-0.snappy.parquet")
     assert bp == "2026-05"
     assert asm == "abc-def"

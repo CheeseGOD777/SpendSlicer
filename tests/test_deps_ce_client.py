@@ -1,7 +1,7 @@
 import threading
 from unittest.mock import MagicMock
 
-from costsight.web.deps import get_ce_client
+from spendslicer.web.deps import get_ce_client
 
 
 def test_each_call_constructs_a_fresh_client():

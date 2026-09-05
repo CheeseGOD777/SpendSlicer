@@ -31,14 +31,14 @@ body:
       options:
         - Desktop build (.dmg)
         - Desktop build (.zip / .exe)
-        - pip install costsight
+        - pip install spendslicer
         - From source (./run.sh)
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: CostSight version
+      label: SpendSlicer version
       placeholder: "0.3.0"
     validations:
       required: true
@@ -53,5 +53,5 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: Output with COSTSIGHT_LOG_LEVEL=debug, redacted.
+      description: Output with SPENDSLICER_LOG_LEVEL=debug, redacted.
       render: shell

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from costsight.web.sqlite_cache import SqliteCache
+from spendslicer.web.sqlite_cache import SqliteCache
 
 
 @pytest.fixture

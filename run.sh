@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run CostSight from a source checkout: create a venv, install, serve.
-# Prefer the desktop build or `pip install costsight[web,cur]` for normal use.
+# Run SpendSlicer from a source checkout: create a venv, install, serve.
+# Prefer the desktop build or `pip install spendslicer[web,cur]` for normal use.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "============================================"
-echo "  CostSight"
+echo "  SpendSlicer"
 echo "============================================"
 echo
 
@@ -38,5 +38,5 @@ echo
 echo "Starting dashboard at http://127.0.0.1:8080/app"
 echo "Press Ctrl+C to stop."
 echo
-# COSTSIGHT_RELOAD=1 enables uvicorn's autoreload for frontend/backend hacking.
-exec python -m costsight.web.app
+# SPENDSLICER_RELOAD=1 enables uvicorn's autoreload for frontend/backend hacking.
+exec python -m spendslicer.web.app

@@ -82,7 +82,7 @@ export const api = {
     const blob = await res.blob();
     const cd = res.headers.get("content-disposition") || "";
     const m = cd.match(/filename="?([^"]+)"?/i);
-    const filename = m?.[1] || `costsight_${Date.now()}.${fmt}`;
+    const filename = m?.[1] || `spendslicer_${Date.now()}.${fmt}`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

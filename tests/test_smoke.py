@@ -4,12 +4,12 @@ from __future__ import annotations
 
 
 def test_package_imports():
-    import costsight
-    assert costsight.__version__
+    import spendslicer
+    assert spendslicer.__version__
 
 
 def test_core_imports():
-    from costsight.core import pricing, provenance, service_groups, types
+    from spendslicer.core import pricing, provenance, service_groups, types
     assert pricing.FALLBACK_RATES["ec2"]
     assert types.CostMetric.UNBLENDED.value == "UnblendedCost"
     assert provenance.VARIANCE_WARN_THRESHOLD_PCT == 1.0
@@ -17,8 +17,8 @@ def test_core_imports():
 
 
 def test_aws_layer_imports():
-    from costsight.aws import session
-    from costsight.resources.ec2 import attribute_ec2, attribute_ec2_account
+    from spendslicer.aws import session
+    from spendslicer.resources.ec2 import attribute_ec2, attribute_ec2_account
     assert callable(session.make_session)
     assert callable(session.list_profiles)
     assert callable(attribute_ec2)
@@ -26,8 +26,8 @@ def test_aws_layer_imports():
 
 
 def test_resources_imports():
-    from costsight.resources import enumerate_all
-    from costsight.resources.runner import ALL_REGIONS
+    from spendslicer.resources import enumerate_all
+    from spendslicer.resources.runner import ALL_REGIONS
     assert callable(enumerate_all)
     assert ALL_REGIONS == "all"
 
@@ -37,7 +37,7 @@ def test_time_window_validation():
 
     import pytest
 
-    from costsight.core.types import TimeWindow
+    from spendslicer.core.types import TimeWindow
 
     now = datetime.now(tz=timezone.utc)
     w = TimeWindow(start=now - timedelta(days=7), end=now)
@@ -54,10 +54,10 @@ def test_time_window_validation():
 def test_merge_ec2_groups():
     from datetime import datetime, timedelta, timezone
 
-    from costsight.aws.cost_explorer import GroupedCost
-    from costsight.core.provenance import CostValue, Provenance
-    from costsight.core.service_groups import merge_ec2_service_groups
-    from costsight.core.types import CostMetric, TimeWindow
+    from spendslicer.aws.cost_explorer import GroupedCost
+    from spendslicer.core.provenance import CostValue, Provenance
+    from spendslicer.core.service_groups import merge_ec2_service_groups
+    from spendslicer.core.types import CostMetric, TimeWindow
 
     now = datetime.now(tz=timezone.utc)
     window = TimeWindow(start=now - timedelta(days=30), end=now)

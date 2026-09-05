@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from costsight.core.filters import (
+from spendslicer.core.filters import (
     ALL_RECORD_TYPES,
     CostFilterSpec,
     build_ce_filter,

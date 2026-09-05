@@ -2,8 +2,8 @@
 
 PyInstaller needs a real script rather than a console-script entry point.
 Keeping this as a thin shim (instead of pointing the spec at
-costsight/desktop.py directly) means the frozen build and the
-``costsight-desktop`` console script run exactly the same code path.
+spendslicer/desktop.py directly) means the frozen build and the
+``spendslicer-desktop`` console script run exactly the same code path.
 """
 
 from __future__ import annotations
@@ -17,6 +17,6 @@ if __name__ == "__main__":
     # spawning a worker.
     multiprocessing.freeze_support()
 
-    from costsight.desktop import main
+    from spendslicer.desktop import main
 
     sys.exit(main())

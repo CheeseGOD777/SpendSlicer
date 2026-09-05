@@ -2,7 +2,7 @@
 
 ## Shape of the thing
 
-CostSight is a local FastAPI server that talks to AWS with your own credentials
+SpendSlicer is a local FastAPI server that talks to AWS with your own credentials
 and serves a prebuilt React dashboard. There is no backend service, no database
 you have to run, and no component that ever sees your cost data.
 
@@ -11,7 +11,7 @@ you have to run, and no component that ever sees your cost data.
             │  HTTP on 127.0.0.1
             ▼
    ┌──────────────────────┐
-   │  FastAPI (costsight) │
+   │  FastAPI (spendslicer) │
    │  ┌────────────────┐  │        ┌─────────────────────┐
    │  │ SQLite cache   │◄─┼────────┤ AWS Cost Explorer   │  $0.01/request
    │  │ TTL + SWR      │  │        │ EC2/RDS/S3/... APIs │  free
@@ -25,7 +25,7 @@ you have to run, and no component that ever sees your cost data.
 ## Module layout
 
 ```
-costsight/
+spendslicer/
   core/         Pure logic — no AWS, no framework, fully unit-testable
     filters.py       Cost Explorer filter construction (pre-credit gross, etc.)
     time_windows.py  UTC half-open [start, end) windows
@@ -116,13 +116,13 @@ request happened to trigger the refresh.
   wheel, and frozen build
 
 The frontend is a Vite + React SPA in `frontend/`, built into
-`costsight/web/static/` and committed, so neither `pip install` nor `./run.sh`
+`spendslicer/web/static/` and committed, so neither `pip install` nor `./run.sh`
 needs Node.
 
 ### Security model
 
 - Loopback bind by default
-- Optional shared-secret token (`COSTSIGHT_AUTH_TOKEN`), constant-time compared
+- Optional shared-secret token (`SPENDSLICER_AUTH_TOKEN`), constant-time compared
 - Origin/Referer allow-list on state-changing requests, blocking classic CSRF
   and DNS rebinding
 - Client-supplied `profile`, `period`, and `region` values are validated against

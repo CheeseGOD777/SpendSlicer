@@ -8,7 +8,7 @@
 - [ ] `ruff check .` is clean
 - [ ] `pytest -q` passes
 - [ ] `cd frontend && npm test` passes
-- [ ] If `frontend/src` changed: rebuilt with `npm run build` and committed `costsight/web/static/`
+- [ ] If `frontend/src` changed: rebuilt with `npm run build` and committed `spendslicer/web/static/`
 
 ## Accuracy
 

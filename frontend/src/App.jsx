@@ -83,7 +83,7 @@ function Sidebar({ page, setPage, profile, collapsed, setCollapsed }) {
       <div className="side-brand">
         <div className="side-logo">CL</div>
         <div className="side-brand-text">
-          <span className="name">CostSight</span>
+          <span className="name">SpendSlicer</span>
           <span className="tag">FinOps Edition</span>
         </div>
       </div>
@@ -649,7 +649,7 @@ function ResourcesPage({ profile, period }) {
           <p>No resources attributed for this window.</p>
           <p className="muted">
             If you just enabled CUR, data takes ~24h to arrive. Run{" "}
-            <code>costsight cur status</code> to check.
+            <code>spendslicer cur status</code> to check.
           </p>
         </div>
       )}
@@ -745,7 +745,7 @@ function ExportPage({ profile, period }) {
         </div>
         <div className="form-row">
           <label>File name (optional)</label>
-          <input type="text" placeholder={`costsight_report.${fmt}`} value={fileName} onChange={(e) => setFileName(e.target.value)} />
+          <input type="text" placeholder={`spendslicer_report.${fmt}`} value={fileName} onChange={(e) => setFileName(e.target.value)} />
         </div>
         <button className="btn btn-primary" onClick={runExport} disabled={running}>
           {running ? "Generating…" : "Generate report"}

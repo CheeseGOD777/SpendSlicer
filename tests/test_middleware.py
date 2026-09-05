@@ -1,6 +1,6 @@
 import pytest
 
-from costsight.web.middleware import CECallCounter, get_current_counter
+from spendslicer.web.middleware import CECallCounter, get_current_counter
 
 
 def test_counter_starts_at_zero():
@@ -35,7 +35,7 @@ def test_middleware_writes_headers():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from costsight.web.middleware import CECountingMiddleware, get_current_counter
+    from spendslicer.web.middleware import CECountingMiddleware, get_current_counter
 
     app = FastAPI()
     app.add_middleware(CECountingMiddleware)
@@ -57,7 +57,7 @@ def test_middleware_isolates_counters_between_requests():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from costsight.web.middleware import CECountingMiddleware, get_current_counter
+    from spendslicer.web.middleware import CECountingMiddleware, get_current_counter
 
     app = FastAPI()
     app.add_middleware(CECountingMiddleware)

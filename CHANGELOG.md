@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to CostSight. Format follows
+Notable changes to SpendSlicer. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [semver](https://semver.org/spec/v2.0.0.html).
 
@@ -17,7 +17,7 @@ First public release.
   webview backend exists. Builds are currently unsigned; see
   [docs/DESKTOP.md](docs/DESKTOP.md).
 - **Per-launch auth token in the desktop builds.** Each run mints a random
-  `COSTSIGHT_AUTH_TOKEN` and passes it to the webview. A loopback bind alone was
+  `SPENDSLICER_AUTH_TOKEN` and passes it to the webview. A loopback bind alone was
   not enough: the CSRF check only covers state-changing methods, so any page in
   the user's browser could fire cross-origin `GET`s at the port and spend real
   Cost Explorer money.
@@ -32,13 +32,13 @@ First public release.
 - **The dashboard 404'd outside a git checkout.** The React bundle was resolved
   relative to the repo root, so an installed wheel looked for it inside
   site-packages and a frozen build failed outright. Vite now builds into
-  `costsight/web/static` and a resolver handles all three layouts.
+  `spendslicer/web/static` and a resolver handles all three layouts.
 - **Startup blocked on AWS.** Profile resolution ran inline in the lifespan,
   holding the port closed for ~15s with five profiles — far longer with an
   expired SSO session or a downed VPN. It now warms in the background: 15s → 1.1s.
 - **`serve()` defaulted to `reload=True`**, which both run scripts used. Reload
   re-execs via a watcher and breaks frozen builds. Now opt-in via
-  `COSTSIGHT_RELOAD=1`.
+  `SPENDSLICER_RELOAD=1`.
 - **CUR ingest could hang shutdown**, sitting in `time.sleep` for up to 6 hours
   with no shutdown hook. It now waits on an event the lifespan sets.
 - The Pricing API cache measured TTL with `datetime.utcnow().timestamp()`, which
@@ -50,11 +50,11 @@ First public release.
 
 ### Changed
 
-- **Renamed to CostSight.** The project previously carried three names at once:
+- **Renamed to SpendSlicer.** The project previously carried three names at once:
   the `aws_cost_ultra` package, the `aws-cost-dashboard` repo, and a
   "Cloud Ledger" brand rendered in the UI, PDF reports, and export filenames.
-  Environment variables moved from `ACU_*` to `COSTSIGHT_*` and the auth header
-  from `X-ACU-Token` to `X-CostSight-Token`. No back-compat aliases — there were
+  Environment variables moved from `ACU_*` to `SPENDSLICER_*` and the auth header
+  from `X-ACU-Token` to `X-SpendSlicer-Token`. No back-compat aliases — there were
   no released users.
 - **Minimum Python is now 3.10** (3.9 is end-of-life).
 - Dropped `reportlab`, declared as a dependency but imported nowhere.
@@ -78,4 +78,4 @@ First public release.
 - Desktop builds are unsigned, so macOS Gatekeeper and Windows SmartScreen warn
   on first launch.
 
-[0.3.0]: https://github.com/CheeseGOD777/costsight/releases/tag/v0.3.0
+[0.3.0]: https://github.com/CheeseGOD777/spendslicer/releases/tag/v0.3.0

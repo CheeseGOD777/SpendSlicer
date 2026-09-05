@@ -1,14 +1,14 @@
 # Contributing
 
-Thanks for looking. CostSight is a small, focused tool and contributions are
+Thanks for looking. SpendSlicer is a small, focused tool and contributions are
 genuinely welcome — particularly on accuracy, which is where the remaining work
 matters most.
 
 ## Setup
 
 ```bash
-git clone https://github.com/CheeseGOD777/costsight.git
-cd costsight
+git clone https://github.com/CheeseGOD777/spendslicer.git
+cd spendslicer
 
 python3 -m venv venv && source venv/bin/activate
 pip install -e ".[web,cur,exporters,dev]"
@@ -22,7 +22,7 @@ Python 3.10+ and Node 20+.
 
 ```bash
 # Backend, with autoreload
-COSTSIGHT_RELOAD=1 python -m costsight.web.app
+SPENDSLICER_RELOAD=1 python -m spendslicer.web.app
 
 # Frontend dev server on :5173, proxying /api to :8080
 cd frontend && npm run dev
@@ -44,10 +44,10 @@ cd frontend && npm test        # must be green
 the result:**
 
 ```bash
-cd frontend && npm run build   # writes costsight/web/static/
+cd frontend && npm run build   # writes spendslicer/web/static/
 ```
 
-That directory is committed on purpose, so `pip install costsight` and
+That directory is committed on purpose, so `pip install spendslicer` and
 `./run.sh` work without a Node toolchain. CI fails the build if it is stale.
 
 ## What we care about in review
@@ -83,7 +83,7 @@ wrong, and where most of the existing 190 tests live.
 pytest -q                                   # everything
 pytest tests/test_attribution_math_fixes.py # one file
 pytest -k rescale -v                        # by name
-pytest --cov=costsight --cov-report=term-missing
+pytest --cov=spendslicer --cov-report=term-missing
 ```
 
 ## Especially wanted
@@ -92,7 +92,7 @@ pytest --cov=costsight --cov-report=term-missing
   per-resource costs from a local warehouse remove the estimation entirely.
   See [docs/CUR.md](docs/CUR.md).
 - **More service enumerators.** ECS, EKS, CloudFront, NAT Gateway, Route 53.
-  Follow the shape of `costsight/resources/rds.py` — it is the clearest example.
+  Follow the shape of `spendslicer/resources/rds.py` — it is the clearest example.
 - **Regional pricing.** The fallback rate table in `core/pricing.py` only
   carries `ap-south-1`. Any additional region is a useful contribution.
 - **Windows and Linux testing.** Development happens on macOS; reports from
@@ -111,7 +111,7 @@ everything.
 
 Open an issue with your OS, Python version, install method (desktop build /
 pip / source), what you expected, and what happened. Include relevant output
-from `COSTSIGHT_LOG_LEVEL=debug`.
+from `SPENDSLICER_LOG_LEVEL=debug`.
 
 **Never paste real account IDs, ARNs, or cost figures.** Redact them. There is
 no sanitiser in the loop here — what you paste is what gets published.

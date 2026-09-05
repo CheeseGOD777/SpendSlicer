@@ -1,4 +1,4 @@
-# CostSight
+# SpendSlicer
 
 **Self-hosted AWS cost visibility that runs on your laptop.** Point it at your
 existing AWS CLI profiles and get named-resource cost attribution, a waste
@@ -7,7 +7,7 @@ radar, and numbers that reconcile against the Billing console.
 No account linking. No agent. No telemetry. Every AWS call is made from your
 machine with your own credentials, and no cost data ever leaves it.
 
-[![CI](https://github.com/CheeseGOD777/costsight/actions/workflows/ci.yml/badge.svg)](https://github.com/CheeseGOD777/costsight/actions/workflows/ci.yml)
+[![CI](https://github.com/CheeseGOD777/spendslicer/actions/workflows/ci.yml/badge.svg)](https://github.com/CheeseGOD777/spendslicer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
@@ -20,7 +20,7 @@ does not tell you *which instance*, what it was named, or whether it has been
 sitting idle since March. Top spenders hide behind nested expanders, and EC2 is
 split across a dozen line items that never add up on first read.
 
-CostSight answers the questions you actually opened the console for:
+SpendSlicer answers the questions you actually opened the console for:
 
 - **Which named resource** cost what — instance ID, `Name` tag, current state
 - **Top services and top resources** on one screen, sorted by spend
@@ -40,7 +40,7 @@ This is the part most cost tools are vague about, so to be explicit:
 | Per-resource cost, with CUR enabled | **Exact.** Real billed line items from your Cost and Usage Report. See [docs/CUR.md](docs/CUR.md). |
 
 So: **service totals are exact, per-resource splits are estimates** unless you
-enable the CUR warehouse. CostSight says which you are looking at rather than
+enable the CUR warehouse. SpendSlicer says which you are looking at rather than
 blurring the two.
 
 Per-resource attribution deliberately does *not* use Cost Explorer's
@@ -63,13 +63,13 @@ default.
 
 ### Desktop app (easiest)
 
-Download from [Releases](https://github.com/CheeseGOD777/costsight/releases):
+Download from [Releases](https://github.com/CheeseGOD777/spendslicer/releases):
 
 | Platform | File |
 | --- | --- |
-| macOS, Apple Silicon | `CostSight-<version>-macos-arm64.dmg` |
-| macOS, Intel | `CostSight-<version>-macos-x86_64.dmg` |
-| Windows x64 | `CostSight-<version>-windows-x64.zip` |
+| macOS, Apple Silicon | `SpendSlicer-<version>-macos-arm64.dmg` |
+| macOS, Intel | `SpendSlicer-<version>-macos-x86_64.dmg` |
+| Windows x64 | `SpendSlicer-<version>-windows-x64.zip` |
 
 > **These builds are not code-signed yet.** macOS will claim the app "is
 > damaged and can't be opened" — that is what Gatekeeper says about any
@@ -81,8 +81,8 @@ Download from [Releases](https://github.com/CheeseGOD777/costsight/releases):
 ### pip
 
 ```bash
-pip install "costsight[web,cur]"
-costsight-web           # http://127.0.0.1:8080/app
+pip install "spendslicer[web,cur]"
+spendslicer-web           # http://127.0.0.1:8080/app
 ```
 
 The dashboard bundle ships inside the wheel, so Node.js is not required.
@@ -90,8 +90,8 @@ The dashboard bundle ships inside the wheel, so Node.js is not required.
 ### From source
 
 ```bash
-git clone https://github.com/CheeseGOD777/costsight.git
-cd costsight
+git clone https://github.com/CheeseGOD777/spendslicer.git
+cd spendslicer
 ./run.sh                # Windows: run.bat
 ```
 
@@ -109,12 +109,12 @@ configure list-profiles` shows. If you have never set one up:
 aws configure --profile my-account
 ```
 
-CostSight reads `~/.aws/credentials` and `~/.aws/config` directly. SSO profiles
+SpendSlicer reads `~/.aws/credentials` and `~/.aws/config` directly. SSO profiles
 work as long as `aws sso login` has been run.
 
 ### A note on Cost Explorer costs
 
-Cost Explorer is a paid API: **$0.01 per request**. CostSight is built around
+Cost Explorer is a paid API: **$0.01 per request**. SpendSlicer is built around
 that fact rather than ignoring it.
 
 - Every response carries `X-CE-Calls-Spent` and `X-CE-Estimated-Cost-USD`
@@ -124,13 +124,13 @@ that fact rather than ignoring it.
 - Background refreshes are deduplicated per cache key and capped globally
 
 A typical dashboard session costs a few cents. Tune it with
-`COSTSIGHT_CACHE_TTL_SECONDS` — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+`SPENDSLICER_CACHE_TTL_SECONDS` — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ---
 
 ## IAM permissions
 
-CostSight is strictly read-only. It never creates, modifies, or deletes
+SpendSlicer is strictly read-only. It never creates, modifies, or deletes
 anything. The minimum policy is in [docs/IAM.md](docs/IAM.md), which lists
 every API call the code actually makes and which feature breaks without it.
 
@@ -155,13 +155,13 @@ from that document.
 
 ## Security posture
 
-CostSight binds to `127.0.0.1` and nothing else by default.
+SpendSlicer binds to `127.0.0.1` and nothing else by default.
 
 - **Desktop builds** mint a random auth token per launch and bind an ephemeral
   port. Nothing else on the machine can drive them.
 - **Self-hosted** runs are unauthenticated on loopback by default, which is
   fine on a laptop. If you bind any other interface, you **must** set
-  `COSTSIGHT_AUTH_TOKEN` — the server logs a loud warning if you don't.
+  `SPENDSLICER_AUTH_TOKEN` — the server logs a loud warning if you don't.
 
 Cost Explorer requests spend real money, so an open port is a financial
 exposure and not just a data one. [SECURITY.md](SECURITY.md) covers the full
