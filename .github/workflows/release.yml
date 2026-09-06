@@ -20,13 +20,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macos-14+ runners are Apple Silicon; macos-13 is the last Intel
-          # image. PyInstaller cannot cross-compile, so each architecture needs
-          # its own runner — a single "universal" job is not an option.
-          - os: macos-14
+          # PyInstaller cannot cross-compile, so each architecture needs its own
+          # runner — a single "universal" job is not an option.
+          #
+          # macos-13 was the old Intel image and GitHub retired it in December
+          # 2025; macos-15-intel replaced it. Both macOS jobs pin the same OS
+          # version so the only difference between them is the chip. Note that
+          # GitHub drops x86_64 macOS entirely in Fall 2027, after which the
+          # Intel job has to go.
+          - os: macos-15
             label: macOS (Apple Silicon)
             arch: arm64
-          - os: macos-13
+          - os: macos-15-intel
             label: macOS (Intel)
             arch: x86_64
           - os: windows-latest
@@ -75,10 +80,33 @@ jobs:
         shell: bash
         run: |
           cd dist
+          # No single sha256 command name works on both runners: macOS ships
+          # `shasum` (a Perl script) but no `sha256sum`, while Git Bash on the
+          # Windows runner ships `sha256sum` but no `shasum`. Assuming `shasum`
+          # is what failed the first Windows release with exit code 127.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha() { sha256sum "$1"; }
+          elif command -v shasum >/dev/null 2>&1; then
+            sha() { shasum -a 256 "$1"; }
+          else
+            echo "::error::no sha256 tool available on this runner"
+            exit 1
+          fi
+
+          shopt -s nullglob
+          count=0
           for f in *.dmg *.zip; do
-            [ -e "$f" ] || continue
-            shasum -a 256 "$f" > "$f.sha256"
+            sha "$f" > "$f.sha256"
+            echo "wrote $f.sha256"
+            count=$((count + 1))
           done
+
+          # Fail loudly rather than uploading a release with no artifacts.
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no .dmg or .zip in dist/ — the build step produced nothing"
+            ls -la
+            exit 1
+          fi
           ls -la
 
       - uses: actions/upload-artifact@v4
