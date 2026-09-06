@@ -87,6 +87,7 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
         "region_label": "All opted-in regions" if region == ALL_REGIONS else region,
         "service": "",
         "services_summary": [],
+        "attribution_source": "estimated",
         "cost_basis_label": "Pre-credit · CE ground truth",
         "incomplete": False,
         "warnings": [],
@@ -111,10 +112,14 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
                 errors=attr_errors, region=region,
             )
             ctx["rows"] = [_normalize_cur_row(r) for r in raw_rows]
+            ctx["attribution_source"] = src.attribution_source(
+                account_id, window, region=region
+            )
         except Exception:
             # Any error in CostSource wiring falls back to existing describe path.
             rows = enumerate_all(session, window, region=region, spec=spec, errors=attr_errors)
             ctx["rows"] = [r.to_dict() for r in rows]
+            ctx["attribution_source"] = "estimated"
 
         if attr_errors:
             ctx["incomplete"] = True
@@ -244,6 +249,7 @@ def api_resources_top_data(
             "unattributed": 0.0,
             "unattributed_pct": 0.0,
             "warming": True,
+            "attribution_source": "estimated",
             "region": region,
             "region_label": "All opted-in regions" if region == ALL_REGIONS else region,
             "cost_basis_label": "Pre-credit · CE ground truth",

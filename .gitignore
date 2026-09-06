@@ -45,3 +45,8 @@ Thumbs.db
 # ─── Agent / assistant session state ────────────────────────────────────
 .claude/
 .superpowers/
+
+# Impeccable design-tooling state: direction contracts, review screenshots,
+# live-mode config. Kept on disk for future sessions, not published.
+.impeccable/
+frontend/.impeccable/

@@ -31,6 +31,19 @@ class CostSource:
             return DailyServiceMatrix.from_ce(raw)
         return self._ce.get_matrix(profile, account_id, window, spec)
 
+    def attribution_source(
+        self, account_id: str, window: _Window, *, region: str = "all"
+    ) -> str:
+        """Which attribution path attribute_resources() will take for this call.
+
+        "cur" means real billed line items (exact); "estimated" means the
+        describe + list-price + rescale path. The UI labels every per-resource
+        figure from this, so the two must never be blurred together.
+        """
+        if region == "all" and self._use_cur(account_id, window):
+            return "cur"
+        return "estimated"
+
     def attribute_resources(
         self, account_id: str, window: _Window, *, session, spec, errors=None,
         region: str = "all",
