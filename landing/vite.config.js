@@ -11,6 +11,13 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
   resolve: {
+    // frontend/src imports bare packages (react from Flap.jsx, recharts from
+    // charts.jsx). Node resolution starts at the importing file, so it looks
+    // in frontend/node_modules — which exists on a dev machine but NOT in the
+    // Pages job, where only landing/ is installed. That is why the build
+    // passed locally and failed in CI. dedupe forces these specifiers to
+    // resolve from this project root regardless of which file imports them.
+    dedupe: ["react", "react-dom", "recharts"],
     alias: {
       // One source of truth for the design system: the product's own files.
       "@app": fileURLToPath(new URL("../frontend/src", import.meta.url)),
