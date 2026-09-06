@@ -244,6 +244,34 @@ app = FastAPI(
 
 app.add_middleware(CECountingMiddleware)
 
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Baseline hardening headers.
+
+    Clickjacking is the one that actually bites here. Without a frame
+    directive, any page in the user's browser can iframe the dashboard: the
+    frame's origin *is* the dashboard's origin, so same-origin policy does not
+    help, and a click the user thinks lands on the attacker's page can trigger
+    an export or a Cost Explorer refetch that spends real money. The Origin
+    allow-list on POSTs does not cover that, because the framed page is
+    same-origin.
+
+    The CSP is deliberately limited to directives that cannot change how the
+    page renders. A full script-src/style-src policy is worth adding, but the
+    React bundle sets inline styles, so it needs verifying in a real browser
+    before it ships rather than being asserted here.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "frame-ancestors 'none'; object-src 'none'; base-uri 'none'",
+    )
+    return response
+
 app.include_router(pages.router)
 app.include_router(cost.router)
 app.include_router(resources_api.router)

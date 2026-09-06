@@ -64,6 +64,16 @@ def ensure_line_items_view(con: duckdb.DuckDBPyConnection) -> None:
     glob = get_parquet_glob(con)
     if not glob:
         return
+    # Escape single quotes by doubling them. The glob is a local filesystem
+    # path, so this is not remotely reachable — but an apostrophe in the path
+    # (a user account named O'Brien is enough) terminated the SQL string and
+    # made the CUR warehouse unusable, and the same hole would accept injected
+    # SQL from anyone who could set COSTSIGHT_CUR_PARQUET_DIR.
+    #
+    # Doubling rather than a bound parameter because DuckDB cannot prepare a
+    # CREATE VIEW statement: read_parquet(?) raises "Unexpected prepared
+    # parameter. This type of statement can't be prepared!"
+    glob_sql = glob.replace("'", "''")
     try:
         con.execute(f"""
         CREATE OR REPLACE VIEW {LINE_ITEMS_VIEW} AS
@@ -81,7 +91,7 @@ def ensure_line_items_view(con: duckdb.DuckDBPyConnection) -> None:
           line_item_unblended_cost            AS unblended_cost,
           line_item_blended_cost              AS blended_cost,
           line_item_currency_code             AS currency
-        FROM read_parquet('{glob}', union_by_name=true)
+        FROM read_parquet('{glob_sql}', union_by_name=true)
     """)
     except Exception as exc:  # noqa: BLE001
         # DuckDB raises IOException when the glob matches no files.

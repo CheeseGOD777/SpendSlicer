@@ -10,6 +10,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: CI only reads the repo. Without this the workflow
+# inherits the repository default, which may be read-write, handing a
+# write-capable GITHUB_TOKEN to every third-party action in the job.
+permissions:
+  contents: read
+
 jobs:
   python:
     name: Python ${{ matrix.python-version }}
