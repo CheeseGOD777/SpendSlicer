@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpendSlicer · AWS cost, down to the named resource</title>
+<meta name="description" content="Self-hosted AWS cost visibility that runs on your laptop. Named-resource attribution, a waste radar, and numbers that reconcile against the Billing console. No account linking, no agent, no telemetry.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="SpendSlicer · AWS cost, down to the named resource">
+<meta property="og:description" content="AWS prices the usage type. It does not name the machine. SpendSlicer does, on your own laptop, with the provenance of every figure.">
+<!-- Absolute, and it has to be. Every major scraper (Slack, X, LinkedIn,
+     Facebook) refuses a relative og:image and simply renders no preview card,
+     because it fetches these tags without a document base to resolve against.
+     Update both URLs together if the site ever moves to a custom domain. -->
+<meta property="og:url" content="https://cheesegod777.github.io/SpendSlicer/">
+<meta property="og:image" content="https://cheesegod777.github.io/SpendSlicer/og.webp">
+<meta property="og:image:alt" content="The SpendSlicer dashboard, showing per-resource AWS cost attribution.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#E7EAEF">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230F1318'/%3E%3Cg transform='translate(2 2)' fill='none' stroke='%23fff' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2' y='3' width='16' height='14' rx='2'/%3E%3Cpath d='M5.5 12.5 9 7l2.5 4L14.5 6.5'/%3E%3C/g%3E%3C/svg%3E">
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

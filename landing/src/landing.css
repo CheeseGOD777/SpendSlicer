@@ -1,0 +1,449 @@
+/* ─── SpendSlicer · landing ────────────────────────────────────────────
+   The visual system is the product's. tokens.css below is the same file the
+   dashboard loads, so the live demos on this page are styled by the app's
+   own stylesheet rather than by a look-alike written for marketing.
+
+   This file adds only what a marketing page needs and the app does not:
+   page chrome, section rhythm, the demo shell, and the explainer.
+
+   Naming: marketing-only classes that would collide with the product get an
+   `lp-` prefix (.lp-btn, not .btn). Anything unprefixed and shared with the
+   app is deliberate reuse.
+
+   Light only, on purpose. The product has no dark mode, and a dark page
+   wrapped around light product panels would break at every demo boundary.
+   Dark mode here starts in tokens.css, not in this file.
+   ───────────────────────────────────────────────────────────────────── */
+
+@import "@app/tokens.css";
+
+:root {
+  --page-w: 1240px;
+  --gut: 40px;
+  --z-nav: 60;
+}
+
+/* tokens.css sizes the app shell for a 100vh grid; a scrolling document
+   needs the defaults back. */
+html, body, #root { height: auto; }
+html { scroll-behavior: smooth; scroll-padding-top: 92px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body { overflow-x: hidden; }
+img { max-width: 100%; display: block; }
+
+/* No global element resets past this point. Everything below is class-scoped,
+   because a bare `section` or `p` rule here would reach into the live demos
+   and restyle the product. That is exactly the bug this comment prevents:
+   `section { padding-block: 96px }` once put 96px of dead space inside the
+   board, whose root element is a <section>. */
+
+.skip {
+  position: absolute; left: 12px; top: -60px; z-index: 100;
+  background: var(--ink); color: var(--panel);
+  padding: 10px 16px; border-radius: var(--r-ctl); font-weight: 600;
+  transition: top var(--swift);
+}
+.skip:focus { top: 12px; }
+
+/* ── Rhythm ──────────────────────────────────────────────────────────── */
+
+.wrap { max-width: var(--page-w); margin: 0 auto; padding-inline: var(--gut); }
+.lp-sect { padding-block: 96px; }
+.sect-rule { border-top: 1px solid var(--rule); }
+
+.hero h1, .head-block h2 {
+  margin: 0;
+  font-weight: 800; letter-spacing: -0.032em; line-height: 1.06;
+}
+.head-block { max-width: 780px; margin: 0 0 34px; }
+.head-block h2 { font-size: clamp(27px, 3.4vw, 42px); }
+.head-block .lede { margin-top: 18px; }
+
+.lede {
+  margin: 0;
+  font-size: clamp(15.5px, 1.4vw, 17.5px);
+  line-height: 1.6;
+  color: var(--ink-3);
+  max-width: 64ch;
+}
+
+code.mono {
+  font-family: var(--face-id);
+  font-size: 0.88em;
+  font-weight: 500;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.figure { margin: 0; font-weight: 800; letter-spacing: -0.045em; line-height: 0.92; }
+
+/* ── Marketing buttons. Prefixed so they never collide with .btn. ────── */
+
+.lp-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 20px;
+  border-radius: var(--r-ctl);
+  font-size: 15px; font-weight: 700; letter-spacing: -0.012em;
+  white-space: nowrap; cursor: pointer; border: 1px solid transparent;
+  transition: background var(--swift), border-color var(--swift), transform var(--swift);
+}
+/* Primary inverts ink and ground, the way an active board row does. */
+.lp-btn-solid { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.lp-btn-solid:hover { background: var(--ink-2); border-color: var(--ink-2); }
+.lp-btn-quiet { background: var(--panel); color: var(--ink); border-color: var(--rule-2); }
+.lp-btn-quiet:hover { background: var(--panel-2); border-color: var(--rule-3); }
+.lp-btn:active { transform: translateY(1px); }
+.lp-btn-sm { height: 36px; padding: 0 14px; font-size: 14px; }
+
+/* ── Navigation. One line at desktop, 64px tall. ─────────────────────── */
+
+.nav {
+  position: sticky; top: 0; z-index: var(--z-nav);
+  height: 64px;
+  background: rgba(231, 234, 239, 0.86);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--rule);
+}
+@supports not (backdrop-filter: blur(1px)) { .nav { background: var(--board); } }
+@media (prefers-reduced-transparency: reduce) {
+  .nav { background: var(--board); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+.nav-in {
+  height: 100%; display: flex; align-items: center; gap: 32px;
+  max-width: var(--page-w); margin: 0 auto; padding-inline: var(--gut);
+}
+.brand { display: flex; align-items: center; gap: 10px; flex: none; }
+.brand-mark {
+  width: 30px; height: 30px; flex: none;
+  border-radius: var(--r-mark);
+  background: var(--ink); color: var(--panel);
+  display: grid; place-items: center;
+}
+.brand-word { display: flex; flex-direction: column; line-height: 1; }
+.brand-word b { font-size: 17px; font-weight: 800; letter-spacing: -0.028em; }
+.brand-word span {
+  margin-top: 4px; font-size: 10.5px; font-weight: 500;
+  color: var(--ink-4); letter-spacing: 0.04em;
+}
+.nav-links { display: flex; align-items: center; gap: 26px; margin-left: auto; }
+.nav-links a { font-size: 14.5px; font-weight: 600; color: var(--ink-3); transition: color var(--swift); }
+.nav-links a:hover { color: var(--ink); }
+.nav-cta { display: flex; align-items: center; gap: 10px; flex: none; }
+
+@media (max-width: 900px) {
+  .nav-links { display: none; }
+  .nav-cta { margin-left: auto; }
+}
+
+/* ── Hero ────────────────────────────────────────────────────────────── */
+
+.hero { padding-block: clamp(48px, 6vw, 76px) 88px; }
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(32px, 4.5vw, 64px);
+  align-items: center;
+}
+.hero h1 { font-size: clamp(33px, 4.1vw, 50px); max-width: 18ch; }
+.hero .lede { margin-top: 22px; }
+.hero-cta { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 12px; }
+
+/* The board is the product's own component; the page only frames it.
+   Its type is sized for a full-width page, so the hero steps the scale
+   down rather than transform-scaling it, which would blur the numerals
+   and lie about the layout. The hero must still fit one viewport. */
+.hero-demo .board {
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-panel);
+  box-shadow: var(--lift-2);
+  overflow: hidden;
+}
+.hero-demo .board-main { padding: 22px 24px 18px; gap: 20px 28px; }
+.hero-demo .board-cap { font-size: 12px; margin-bottom: 8px; }
+.hero-demo .board-total { font-size: clamp(32px, 3.4vw, 50px); }
+.hero-demo .board-sub { margin-top: 11px; font-size: 12.5px; }
+.hero-demo .board-aside-cell { min-width: 104px; padding-left: 18px; margin-left: 18px; }
+.hero-demo .board-aside-v { font-size: 19px; }
+.hero-demo .xcheck { padding: 16px 24px; }
+.hero-demo .xcheck-v { font-size: 19px; }
+/* In a narrow hero column the note wraps below the three cells, where a
+   left border and a 40ch cap leave a dead gap. Make it a full-width rule
+   under the equation instead. */
+.hero-demo .xcheck-note {
+  font-size: 12px;
+  flex-basis: 100%;
+  max-width: none;
+  border-left: 0;
+  border-top: 1px solid var(--rule);
+  padding: 12px 0 0;
+  margin-top: 14px;
+}
+.hero-demo .dep-row { padding-block: 13px; }
+.hero-demo .dep-cost { font-size: 18px; }
+.demo-tag {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-4);
+  font-family: var(--face-col);
+}
+
+@media (max-width: 1000px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+  .hero h1 { max-width: 20ch; }
+}
+
+/* ── The attribution explainer ───────────────────────────────────────── */
+
+.xp-sum {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
+  margin: 22px 0 18px;
+  font-size: 15px; color: var(--ink-3);
+}
+.xp-sum b {
+  font-size: 26px; font-weight: 800; color: var(--ink);
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+}
+.xp-sum-note { color: var(--ink-4); }
+
+.xp-cols {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px; align-items: start;
+}
+
+.xp-col {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  padding: 20px 22px 18px;
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+/* The column that carries the argument gets the weight, not a colour. */
+.xp-col-ours { border-color: var(--rule-3); box-shadow: var(--lift-1); }
+
+.xp-head { margin-bottom: 14px; }
+.xp-head h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.014em; }
+.xp-head p { margin: 4px 0 0; font-size: 13px; color: var(--ink-4); }
+
+.xp-tbl { width: 100%; border-collapse: collapse; }
+.xp-tbl td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+.xp-tbl tr:last-child td { border-bottom: 0; }
+.xp-tbl-res td { font-size: 13.5px; padding: 9px 8px 9px 0; }
+.xp-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.xp-tbl .col-id { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+
+.xp-state {
+  margin-left: 8px; padding: 1px 6px;
+  border-radius: var(--r-mark);
+  background: var(--panel-3); color: var(--ink-4);
+  font-family: var(--face-col); font-size: 11px; font-weight: 600;
+}
+.xp-foot {
+  margin: auto 0 0; padding-top: 14px;
+  font-size: 12.5px; color: var(--ink-4); line-height: 1.5;
+}
+.xp-foot .mark { margin-inline: 2px; }
+
+@media (max-width: 900px) {
+  .xp-cols { grid-template-columns: 1fr; }
+  .xp-tbl .col-id { max-width: 120px; }
+}
+
+/* ── Live surfaces ───────────────────────────────────────────────────── */
+
+.demo-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.demo-tab {
+  height: 38px; padding: 0 16px;
+  border-radius: var(--r-ctl); border: 1px solid transparent;
+  background: transparent; color: var(--ink-3);
+  font-family: var(--face); font-size: 14.5px; font-weight: 600;
+  cursor: pointer;
+  transition: background var(--swift), color var(--swift);
+}
+.demo-tab:hover { background: var(--panel); color: var(--ink); }
+.demo-tab[aria-selected="true"] { background: var(--ink); color: var(--panel); font-weight: 700; }
+
+.surfaces-panel:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+
+/* The real .app is a 100vh grid and cannot live inside a scrolling page.
+   This is the same shell at a bounded height. */
+.demo-shell {
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  height: 620px;
+  background: var(--board);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-panel);
+  box-shadow: var(--lift-2);
+  overflow: hidden;
+}
+.demo-shell-tall { height: 720px; }
+
+.demo-rail {
+  background: var(--panel);
+  border-right: 1px solid var(--rule);
+  padding: 20px 12px 14px;
+  min-width: 0;
+  overflow: hidden;
+}
+/* Decorative rail: it mirrors the app's navigation but the tab strip above
+   the shell is the real control, so nothing here invites a click. */
+.demo-rail .rail-item { cursor: default; }
+.demo-rail .rail-item.on { background: var(--ink); color: var(--panel); }
+.demo-rail .rail-item.on svg { opacity: 1; }
+
+.demo-main { display: flex; flex-direction: column; min-width: 0; }
+.demo-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 26px 28px 40px; }
+.demo-ctl { cursor: default; }
+.demo-shell .board-bar { flex: none; }
+.demo-shell .head { margin-bottom: 20px; }
+.demo-shell .head h1 { font-size: 25px; }
+/* Wider right column than the app uses, so the donut legend has room for
+   full service names instead of ellipsising them. */
+.demo-shell .split { grid-template-columns: 1.15fr 1fr; }
+
+@media (max-width: 900px) {
+  .demo-shell { grid-template-columns: 1fr; height: 560px; }
+  .demo-rail { display: none; }
+  .demo-scroll { padding: 20px 16px 32px; }
+  .demo-shell .split { grid-template-columns: 1fr; }
+}
+
+/* ── Meter ───────────────────────────────────────────────────────────── */
+
+.meter-grid {
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+  gap: clamp(28px, 5vw, 64px); align-items: start;
+}
+.meter-fig { font-size: clamp(70px, 9vw, 124px); }
+.meter-fig-label { margin: 14px 0 0; font-size: 14.5px; color: var(--ink-4); max-width: 268px; }
+
+/* Grouped facts: one rule per group, not one rule per row. */
+.facts { display: grid; gap: 26px; }
+.facts > div { padding-top: 22px; border-top: 1px solid var(--rule); }
+.facts dt { margin: 0; font-size: 15.5px; font-weight: 700; letter-spacing: -0.014em; }
+.facts dd { margin: 7px 0 0; font-size: 15px; color: var(--ink-3); max-width: 60ch; }
+
+@media (max-width: 900px) { .meter-grid { grid-template-columns: 1fr; gap: 32px; } }
+
+/* ── Local only ──────────────────────────────────────────────────────── */
+
+.plain { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 34px 56px; }
+.plain > div { padding-top: 22px; border-top: 1px solid var(--rule); }
+.plain h3 { margin: 0 0 8px; font-size: 16px; font-weight: 700; letter-spacing: -0.014em; }
+.plain p { margin: 0; font-size: 15px; color: var(--ink-3); }
+
+@media (max-width: 800px) { .plain { grid-template-columns: 1fr; gap: 28px; } }
+
+/* ── Install: one wide route, two beside it. Three cells, three routes. ─ */
+
+.routes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.route {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-panel);
+  padding: 26px 26px 22px;
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.route-wide { grid-column: 1 / -1; }
+.route h3 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.014em; }
+.route > p { margin: 8px 0 0; font-size: 14.5px; color: var(--ink-3); max-width: 64ch; }
+.route-note { margin: auto 0 0; padding-top: 16px; font-size: 13.5px; color: var(--ink-4); }
+.route-note a, .limits dd a {
+  color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px;
+}
+
+.cmd {
+  margin-top: 14px;
+  display: flex; align-items: stretch;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-ctl);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.cmd code {
+  flex: 1; min-width: 0;
+  font-family: var(--face-id); font-size: 13px; font-weight: 500;
+  color: var(--ink-2);
+  padding: 12px 14px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cmd-copy {
+  flex: none; min-width: 74px;
+  border: 0; border-left: 1px solid var(--rule);
+  background: transparent; color: var(--ink-4);
+  font-family: var(--face); font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  transition: background var(--swift), color var(--swift);
+}
+.cmd-copy:hover { background: var(--panel-3); color: var(--ink); }
+.cmd-copy .cmd-copy-done, .cmd-copy .cmd-copy-fail { display: none; }
+.cmd-copy[data-state="done"] { color: var(--ontime); }
+.cmd-copy[data-state="done"] .cmd-copy-idle { display: none; }
+.cmd-copy[data-state="done"] .cmd-copy-done { display: inline; }
+.cmd-copy[data-state="fail"] { color: var(--signal); }
+.cmd-copy[data-state="fail"] .cmd-copy-idle { display: none; }
+.cmd-copy[data-state="fail"] .cmd-copy-fail { display: inline; }
+
+@media (max-width: 800px) { .routes { grid-template-columns: 1fr; } }
+
+/* ── Limits. The section a marketing page would delete. ──────────────── */
+
+.limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 56px; }
+.limits > div { padding-top: 20px; border-top: 1px solid var(--rule); }
+.limits dt { margin: 0; font-size: 15.5px; font-weight: 700; letter-spacing: -0.014em; }
+.limits dd { margin: 7px 0 0; font-size: 14.5px; color: var(--ink-3); }
+
+@media (max-width: 800px) { .limits { grid-template-columns: 1fr; gap: 26px; } }
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+
+.foot { border-top: 1px solid var(--rule); padding-block: 56px 44px; }
+.foot-grid {
+  display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  gap: 36px 48px;
+}
+.foot h3 {
+  font-size: 12px; font-weight: 700; color: var(--ink-4);
+  letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 14px;
+}
+.foot ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.foot li a { font-size: 14.5px; color: var(--ink-3); transition: color var(--swift); }
+.foot li a:hover { color: var(--ink); }
+.foot-note { margin: 16px 0 0; font-size: 14px; color: var(--ink-4); max-width: 46ch; }
+.foot-base {
+  margin: 44px 0 0; padding-top: 22px; border-top: 1px solid var(--rule);
+  display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+  font-size: 13.5px; color: var(--ink-4);
+}
+
+@media (max-width: 800px) { .foot-grid { grid-template-columns: 1fr; gap: 30px; } }
+
+/* ── Motion ──────────────────────────────────────────────────────────────
+   Entry sets reading order in the hero; reveals pace the argument as the
+   page is read. Both collapse to static under reduced motion. */
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise { opacity: 0; transform: translateY(16px); }
+  .rise.seen { opacity: 1; transform: none; transition: opacity 520ms var(--ease-out, cubic-bezier(0.16, 1, 0.3, 1)), transform 520ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .lift > * { opacity: 0; animation: lift 620ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .lift > *:nth-child(1) { animation-delay: 60ms; }
+  .lift > *:nth-child(2) { animation-delay: 130ms; }
+  .lift > *:nth-child(3) { animation-delay: 200ms; }
+  .hero-demo { opacity: 0; animation: lift 780ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both; }
+}
+@keyframes lift { from { transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+/* ── Mobile ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  :root { --gut: 20px; }
+  .lp-sect { padding-block: 68px; }
+  .hero { padding-block: 36px 60px; }
+  .route { padding: 22px 20px 18px; }
+  .hero-cta .lp-btn { flex: 1 1 auto; }
+}

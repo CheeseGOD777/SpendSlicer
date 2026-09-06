@@ -1,0 +1,72 @@
+name: Landing site
+
+# Builds landing/ and publishes it to GitHub Pages.
+# frontend/src is a trigger too: the landing page imports the design system
+# from there, so a change to tokens.css changes the marketing site.
+#
+# One-time setup: Settings -> Pages -> Source -> GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "landing/**"
+      - "frontend/src/**"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "landing/**"
+      - "frontend/src/**"
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  # Deliberately false. Cancelling a run that is already inside deploy-pages
+  # can leave the Pages deployment half-applied; queueing instead costs a
+  # minute and always lands a complete site. This matches GitHub's own
+  # starter workflow.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: Install
+        working-directory: landing
+        run: npm ci
+
+      - name: Build
+        working-directory: landing
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: landing/dist
+
+  deploy:
+    name: Deploy
+    # Pull requests build but do not publish.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
