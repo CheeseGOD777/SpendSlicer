@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Tirth Teraiya" }]
 keywords = ["aws", "cost", "finops", "billing", "audit", "cloud", "devops"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Web Environment",
     "Framework :: FastAPI",
     "Intended Audience :: Developers",

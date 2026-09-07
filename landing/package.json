@@ -1,7 +1,7 @@
 {
   "name": "spendslicer-landing",
   "private": true,
-  "version": "0.3.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "Marketing site for SpendSlicer. Separate from the dashboard bundle so it never ships inside the Python wheel.",
   "scripts": {

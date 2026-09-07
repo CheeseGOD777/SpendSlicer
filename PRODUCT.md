@@ -110,7 +110,7 @@ pywebview produce the desktop builds.
   will warn.
 - Costs are pre-credit gross, matching the Billing console default.
 
-**Status:** Beta, v0.3.0, first public release 2026-09-05. CUR-based
+**Status:** v1.0.0, first public release 2026-09-07. CUR-based
 attribution is the accuracy model still in motion.
 
 ## Brand Commitments

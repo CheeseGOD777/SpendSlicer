@@ -94,12 +94,12 @@ export SPENDSLICER_AUTH_TOKEN="$(openssl rand -base64 32)"
 
 ## Supported versions
 
-Being pre-1.0, only the latest release gets fixes.
+Only the latest minor release gets security fixes.
 
 | Version | Supported |
 | --- | --- |
-| 0.3.x | Yes |
-| < 0.3 | No |
+| 1.0.x | Yes |
+| < 1.0 | No (never publicly released) |
 
 ## Dependencies
 

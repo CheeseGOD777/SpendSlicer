@@ -20,7 +20,7 @@ Download the file for your platform from
 Verify the download against the `.sha256` file published alongside it:
 
 ```bash
-shasum -a 256 -c SpendSlicer-0.3.0-macos-arm64.dmg.sha256
+shasum -a 256 -c SpendSlicer-1.0.0-macos-arm64.dmg.sha256
 ```
 
 ---

@@ -4,9 +4,15 @@ Notable changes to SpendSlicer. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [semver](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] — 2026-09-05
+## [1.0.0] — 2026-09-07
 
 First public release.
+
+Numbered 1.0.0 rather than 0.x deliberately. The surface people actually
+depend on — the CLI, the environment variables and the HTTP endpoints — is
+settled, and the accuracy work still ahead makes estimates *better* rather
+than breaking anyone's integration. A 0.x label would have understated how
+usable this is while buying no real freedom.
 
 ### Added
 
@@ -78,4 +84,4 @@ First public release.
 - Desktop builds are unsigned, so macOS Gatekeeper and Windows SmartScreen warn
   on first launch.
 
-[0.3.0]: https://github.com/CheeseGOD777/spendslicer/releases/tag/v0.3.0
+[1.0.0]: https://github.com/CheeseGOD777/SpendSlicer/releases/tag/v1.0.0

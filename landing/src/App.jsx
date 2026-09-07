@@ -356,7 +356,7 @@ const LIMITS = [
   {
     t: "Per-resource attribution is still moving",
     d: <>The CUR accuracy model is the part of this tool most likely to change between releases.
-       Beta, v0.3.0.</>,
+       v1.0.0.</>,
   },
 ];
 
@@ -423,7 +423,7 @@ function Foot() {
         </div>
         <p className="foot-base">
           <span>MIT licensed.</span>
-          <span>Beta, v0.3.0.</span>
+          <span>v1.0.0.</span>
           <span>Python 3.10 or newer.</span>
           <span>Figures in the demo are sample data.</span>
         </p>

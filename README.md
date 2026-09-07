@@ -171,11 +171,14 @@ threat model.
 
 ## Project status
 
-Beta. The test suite covers the attribution math, time-window handling, cache
-semantics, and the audit engine, and it runs against Python 3.10–3.13 on every
-push. The accuracy model is the part still moving — CUR-based attribution is
-the path to making the estimates exact, and it is the most valuable place to
-contribute.
+Stable. The CLI, environment variables and HTTP endpoints are settled, and the
+test suite covers the attribution math, time-window handling, cache semantics
+and the audit engine against Python 3.10–3.13 on every push.
+
+The accuracy model is the part still moving — CUR-based attribution is the path
+to making per-resource estimates exact, and it is the most valuable place to
+contribute. That work makes numbers *better*, not incompatible, so it will not
+break anything you build on top.
 
 Known limitations:
 
