@@ -23,7 +23,6 @@ export function Shell({ page, onPage, title, children, tall = false }) {
           <span className="rail-mark"><BrandMark /></span>
           <span className="rail-word">
             <span className="name">SpendSlicer</span>
-            <span className="where">Local only</span>
           </span>
         </div>
         <div className="rail-sect">

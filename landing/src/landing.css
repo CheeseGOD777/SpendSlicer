@@ -122,12 +122,8 @@ code.mono {
   background: var(--ink); color: var(--panel);
   display: grid; place-items: center;
 }
-.brand-word { display: flex; flex-direction: column; line-height: 1; }
+.brand-word { display: flex; align-items: center; line-height: 1; }
 .brand-word b { font-size: 17px; font-weight: 800; letter-spacing: -0.028em; }
-.brand-word span {
-  margin-top: 4px; font-size: 10.5px; font-weight: 500;
-  color: var(--ink-4); letter-spacing: 0.04em;
-}
 .nav-links { display: flex; align-items: center; gap: 26px; margin-left: auto; }
 .nav-links a { font-size: 14.5px; font-weight: 600; color: var(--ink-3); transition: color var(--swift); }
 .nav-links a:hover { color: var(--ink); }
@@ -163,7 +159,7 @@ code.mono {
 }
 .hero-demo .board-main { padding: 22px 24px 18px; gap: 20px 28px; }
 .hero-demo .board-cap { font-size: 12px; margin-bottom: 8px; }
-.hero-demo .board-total { font-size: clamp(32px, 3.4vw, 50px); }
+.hero-demo .board-total { font-size: clamp(28px, 2.7vw, 40px); }
 .hero-demo .board-sub { margin-top: 11px; font-size: 12.5px; }
 .hero-demo .board-aside-cell { min-width: 104px; padding-left: 18px; margin-left: 18px; }
 .hero-demo .board-aside-v { font-size: 19px; }

@@ -163,7 +163,6 @@ function Rail({ page, setPage, profile, collapsed, setCollapsed }) {
         <span className="rail-mark"><BrandMark /></span>
         <span className="rail-word">
           <span className="name">SpendSlicer</span>
-          <span className="where">Local only</span>
         </span>
       </div>
       <button

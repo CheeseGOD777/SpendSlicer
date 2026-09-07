@@ -24,6 +24,8 @@ const ABBREV = {
 const abbrev = (n) => ABBREV[n] || shortService(n);
 
 const TOP = SERVICES.slice(0, 6);
+/* The real Dashboard asks the backend for the top 10; match it. */
+const TOP_RESOURCES = [...RESOURCES].sort((a, b) => b.cost - a.cost).slice(0, 10);
 const mix = TOP
   .map((s, i) => ({ name: abbrev(s.name), value: s.cost, color: PALETTE[i % PALETTE.length] }))
   .concat([{
@@ -72,7 +74,7 @@ export function SurfaceDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {RESOURCES.map((r) => (
+                {TOP_RESOURCES.map((r) => (
                   <tr key={r.resource_id}>
                     <td className="tt-lead">{r.name}</td>
                     <td className="tt-quiet col">{shortService(r.service)}</td>

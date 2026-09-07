@@ -63,7 +63,7 @@ function Wordmark() {
   return (
     <a className="brand" href="#top" aria-label="SpendSlicer, home">
       <span className="brand-mark" aria-hidden="true"><BrandMark size={18} /></span>
-      <span className="brand-word"><b>SpendSlicer</b><span>Local only</span></span>
+      <span className="brand-word"><b>SpendSlicer</b></span>
     </a>
   );
 }
@@ -74,8 +74,8 @@ function Nav() {
       <div className="nav-in">
         <Wordmark />
         <nav className="nav-links" aria-label="Sections">
-          <a href="#attribution">Attribution</a>
           <a href="#surfaces">Screens</a>
+          <a href="#attribution">Attribution</a>
           <a href="#local">Local only</a>
           <a href="#limits">Limits</a>
         </nav>
@@ -95,8 +95,9 @@ function Hero() {
         <div className="lift">
           <h1>The console will not name the machine.</h1>
           <p className="lede">
-            SpendSlicer names it, with the provenance of every figure. It runs on your laptop
-            against your own AWS profile.
+            SpendSlicer names it, and carries the provenance of every figure. It runs on your
+            own laptop against your own AWS profile &mdash; no account linking, no agent, and no
+            cost data ever leaves the machine.
           </p>
           <div className="hero-cta">
             <a className="lp-btn lp-btn-solid" href="#install">Install</a>
@@ -122,8 +123,8 @@ function AttributionSection() {
         <div className="head-block rise">
           <h2>AWS prices the usage type. It does not name the machine.</h2>
           <p className="lede">
-            This is the whole difference, and it is easier to see than to explain. Pick a service.
-            Both columns below add up to the same billed dollar. Only one of them tells you what
+            This is the whole difference, and it is easier to see than to explain. Pick any service
+            below. Both columns add up to the same billed dollar. Only one of them tells you what
             to go and switch off.
           </p>
         </div>
@@ -140,11 +141,13 @@ function SurfacesSection() {
     <section id="surfaces" className="lp-sect sect-rule">
       <div className="wrap">
         <div className="head-block rise">
-          <h2>Three screens do the work.</h2>
+          <h2>Every service on the bill, not a chosen few.</h2>
           <p className="lede">
-            Running below, not a screenshot. Open a service row, filter by service, copy a resource
-            ID. Audit and Export are the other two screens: a waste list of resources billing
-            without earning it, and CSV, JSON or PDF written by your own machine.
+            Running below, not a screenshot. Whatever Cost Explorer bills you appears here &mdash;
+            EC2 and RDS alongside Lambda, ECS, OpenSearch, SQS, SNS, NAT gateways and the long tail
+            of small services that quietly add up. Open a service row, filter by service, copy a
+            resource ID. Audit and Export are the other two screens: a waste list of resources
+            billing without earning it, and CSV, JSON or PDF written by your own machine.
           </p>
         </div>
         <div className="rise">
@@ -329,9 +332,9 @@ function InstallSection() {
 
 const LIMITS = [
   {
-    t: "PDF export needs Node.js",
-    d: <>It renders through Puppeteer, so it does not work in the desktop builds or a bare{" "}
-       <code className="mono">pip install</code>. CSV and JSON do.</>,
+    t: "PDF export is Latin-1 only",
+    d: <>The PDF uses the core PDF fonts, so a resource name in CJK, Cyrillic or emoji
+       renders as <code className="mono">?</code>. CSV and JSON carry those rows as UTF-8.</>,
   },
   {
     t: "Named-resource coverage is eight services",
@@ -441,8 +444,8 @@ export default function App() {
       <main id="main">
         <span id="top" />
         <Hero />
-        <AttributionSection />
         <SurfacesSection />
+        <AttributionSection />
         <MeterSection />
         <LocalSection />
         <InstallSection />
