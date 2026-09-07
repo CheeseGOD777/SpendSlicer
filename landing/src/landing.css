@@ -165,15 +165,10 @@ code.mono {
 .hero-demo .board-aside-v { font-size: 19px; }
 .hero-demo .xcheck { padding: 16px 24px; }
 .hero-demo .xcheck-v { font-size: 19px; }
-/* In a narrow hero column the note wraps below the three cells, where a
-   left border and a 40ch cap leave a dead gap. Make it a full-width rule
-   under the equation instead. */
+/* The base rule already puts the note on its own row; the hero only needs
+   it flush with the strip's own padding. */
 .hero-demo .xcheck-note {
   font-size: 12px;
-  flex-basis: 100%;
-  max-width: none;
-  border-left: 0;
-  border-top: 1px solid var(--rule);
   padding: 12px 0 0;
   margin-top: 14px;
 }

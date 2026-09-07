@@ -81,6 +81,7 @@
   --swift: 130ms cubic-bezier(0.3, 0.7, 0.3, 1);
   --ease:  240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
+  --xcheck-label-h: 24px;
   --rail-w: 236px;
   --rail-w-collapsed: 68px;
 }
@@ -483,6 +484,7 @@ select.ctl {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: var(--xcheck-label-h);
   white-space: nowrap;
 }
 .xcheck-v {
@@ -494,23 +496,45 @@ select.ctl {
 }
 .xcheck-v.is-drift { color: var(--signal); }
 .xcheck-op {
-  display: grid;
-  place-items: center;
-  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 15px 6px;
   font-family: var(--face-board);
-  font-size: 21px;
-  font-weight: 500;
-  color: var(--ink-6);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--ink-5);
   flex: 0 0 auto;
+  user-select: none;
+}
+/* Stands in for the label row above, so the glyph sits on the figures. */
+.xcheck-op::before {
+  content: "";
+  display: block;
+  height: var(--xcheck-label-h);
 }
 .xcheck-note {
-  padding: 15px 22px;
-  border-left: 1px solid var(--rule);
+  position: relative;
+  flex-basis: 100%;
+  padding: 14px 22px 15px;
   font-size: 12.5px;
   color: var(--ink-4);
-  max-width: 40ch;
-  flex: 1 1 220px;
+  /* Caps the reading measure without cropping the rule above it. */
+  max-width: 88ch;
   line-height: 1.5;
+  margin: 0;
+}
+/* The rule spans the whole strip; the panel's own overflow clips it. */
+.xcheck-note::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 1px;
+  background: var(--rule);
 }
 
 /* ── Split-flap numerals ──────────────────────────────────────────────── */
@@ -1111,7 +1135,7 @@ tr.clickable:hover .caret { color: var(--ink); }
     line-height: 1;
     color: var(--ink-4);
   }
-  .xcheck-note { padding: 14px 18px; }
+  .xcheck-note { padding: 13px 18px 14px; max-width: none; }
   .board-main { padding: 22px 18px 18px; flex-direction: column; align-items: stretch; gap: 22px; }
 
   .board-aside { width: 100%; }
@@ -1129,7 +1153,6 @@ tr.clickable:hover .caret { color: var(--ink); }
   .dep-share { grid-area: share; }
   .cue { padding: 9px 18px; flex-wrap: wrap; }
   .cue-time { margin-left: 0; width: 100%; }
-  .xcheck-note { border-left: 0; border-top: 1px solid var(--rule); flex-basis: 100%; max-width: none; }
   .head h1 { font-size: 27px; }
   .legend { gap: 14px; }
 }

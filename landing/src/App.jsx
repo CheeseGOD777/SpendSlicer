@@ -123,9 +123,9 @@ function AttributionSection() {
         <div className="head-block rise">
           <h2>AWS prices the usage type. It does not name the machine.</h2>
           <p className="lede">
-            This is the whole difference, and it is easier to see than to explain. Pick any service
-            below. Both columns add up to the same billed dollar. Only one of them tells you what
-            to go and switch off.
+            This is the whole difference, and it is easier to see than to explain. Pick any
+            service below. The left column is every way AWS priced it. The right names the
+            machines behind the same spend. Only one of them tells you what to go and switch off.
           </p>
         </div>
         <div className="rise">

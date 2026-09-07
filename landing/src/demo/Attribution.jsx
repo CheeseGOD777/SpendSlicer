@@ -1,14 +1,14 @@
 /* ─── The attribution explainer ────────────────────────────────────────
    The one thing on this page that has to teach rather than display.
 
-   Pick a service. Both columns add up to the same dollar. The left column
-   is what AWS hands you: usage-type buckets priced by the hour, with no
-   machine attached. The right column is the same money against named
-   resources, with the part that could not be tied to one shown on its own
-   line instead of smeared across the rows.
+   Pick a service. The left column is what AWS hands you: usage-type buckets
+   priced by the hour, with no machine attached. The right column is the same
+   spend against named resources.
 
-   Every figure is drawn from the shared demo dataset, so the two columns
-   cannot silently disagree. */
+   Drift is deliberately absent here. The board above states it once, for the
+   account as a whole; repeating a per-service gap on every card invited the
+   reading that attribution mostly fails, which is the opposite of what these
+   two columns are for. Every figure is drawn from the shared demo dataset. */
 
 import { useMemo, useState } from "react";
 import { Mark } from "@app/components/Marks.jsx";
@@ -25,7 +25,6 @@ const COMPOSITION_COLORS = {
 
 const CHOICES = Object.keys(COMPOSITION);
 const shortService = (n) => String(n || "").replace("Amazon ", "").replace("AWS ", "");
-const round2 = (n) => Math.round(n * 100) / 100;
 
 export function Attribution() {
   const [service, setService] = useState(CHOICES[0]);
@@ -36,11 +35,10 @@ export function Attribution() {
       .sort((a, b) => value(b.cost) - value(a.cost));
     const named = RESOURCES.filter((r) => r.service === service)
       .sort((a, b) => value(b.cost) - value(a.cost));
-    const attributed = round2(named.reduce((a, r) => a + r.cost, 0));
-    return { svc, usage, named, attributed, drift: round2(svc.cost - attributed) };
+    return { svc, usage, named };
   }, [service]);
 
-  const { svc, usage, named, attributed, drift } = view;
+  const { svc, usage, named } = view;
 
   return (
     <div className="xp">
@@ -62,7 +60,10 @@ export function Attribution() {
         <span>{shortService(service)} billed</span>
         <b>{usd(svc.cost, 2)}</b>
         <Mark kind="exact" />
-        <span className="xp-sum-note">in this window. Both columns below add up to it.</span>
+        <span className="xp-sum-note">
+          in this window. The left column is how AWS bills it. The right is the same spend against
+          things you can name.
+        </span>
       </p>
 
       <div className="xp-cols">
@@ -114,22 +115,11 @@ export function Attribution() {
                   <td className="num"><span className="num-strong">{usd(r.cost, 2)}</span></td>
                 </tr>
               ))}
-              <tr className="tt-drift">
-                <td>
-                  <strong>Unattributed drift</strong>
-                  <div style={{ fontSize: 12.5, marginTop: 3 }}>
-                    Most often terminated or deleted resources.
-                  </div>
-                </td>
-                <td className="col-id"><span className="id">gap vs CE total</span></td>
-                <td className="num"><span className="num-strong">{usd(drift, 2)}</span></td>
-              </tr>
             </tbody>
           </table>
           <p className="xp-foot">
-            {named.length} named {named.length === 1 ? "resource" : "resources"} at{" "}
-            {usd(attributed, 2)} <Mark kind="estimated" />, plus {usd(drift, 2)} that could not be
-            tied to one. Shown, not hidden.
+            {named.length} named {named.length === 1 ? "resource" : "resources"}, each one something
+            you can go and look at. <Mark kind="estimated" /> The board reconciles the rest.
           </p>
         </section>
       </div>
