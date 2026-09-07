@@ -102,7 +102,7 @@ ships inside the wheel, so Node.js is not required to run it. PyInstaller +
 pywebview produce the desktop builds.
 
 **Known limitations, not to be papered over:**
-- PDF export renders through Puppeteer and therefore needs Node.js — it does
+- PDF export uses the core PDF fonts, so names outside Latin-1 render as "?" — it does
   not work in the desktop builds or a bare `pip install`. CSV and JSON do.
 - The Pricing API fallback table only carries `ap-south-1` rates; other regions
   fall through to the live API.

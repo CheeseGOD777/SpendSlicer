@@ -77,9 +77,6 @@ usable this is while buying no real freedom.
 
 ### Known limitations
 
-- PDF export renders through Puppeteer and therefore needs Node.js. It does not
-  work in the desktop builds or a bare `pip install`. CSV and JSON work
-  everywhere.
 - The Pricing API fallback table only carries `ap-south-1` rates.
 - Desktop builds are unsigned, so macOS Gatekeeper and Windows SmartScreen warn
   on first launch.

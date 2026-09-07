@@ -39,6 +39,7 @@ web = [
     "uvicorn[standard]>=0.29",
 ]
 exporters = [
+    "fpdf2>=2.8",
     "slack-sdk>=3.27",
 ]
 cur = [

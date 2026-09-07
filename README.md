@@ -182,11 +182,10 @@ break anything you build on top.
 
 Known limitations:
 
-- **PDF export needs Node.js.** It renders through Puppeteer, so it does not
-  work in the desktop builds or a bare `pip install`. CSV and JSON export work
-  everywhere.
 - The Pricing API fallback table only carries `ap-south-1` rates; other regions
   fall through to the live API.
+- PDF export uses the core PDF fonts, so resource names outside Latin-1 (CJK,
+  Cyrillic, emoji) render as `?`. CSV and JSON carry them as UTF-8.
 
 ## Contributing
 

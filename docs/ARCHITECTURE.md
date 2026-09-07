@@ -117,7 +117,6 @@ request happened to trigger the refresh.
 
 The frontend is a Vite + React SPA in `frontend/`, built into
 `spendslicer/web/static/` and committed, so neither `pip install` nor `./run.sh`
-needs Node.
 
 ### Security model
 

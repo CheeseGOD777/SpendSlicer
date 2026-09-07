@@ -86,7 +86,7 @@ never writes to either.
 | Port | OS-assigned, ephemeral | 8080 |
 | Auth | Random token minted per launch | None by default |
 | Window | Native webview | Your browser |
-| PDF export | Unavailable (needs Node) | Works if Node is installed |
+| PDF export | Works | Works |
 
 The per-launch token matters more than it might look. The server's CSRF check
 only guards state-changing methods, so on a plain unauthenticated loopback bind

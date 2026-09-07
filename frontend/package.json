@@ -20,8 +20,5 @@
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.10",
     "vitest": "^2.1.9"
-  },
-  "optionalDependencies": {
-    "puppeteer": "^22.15.0"
   }
 }
