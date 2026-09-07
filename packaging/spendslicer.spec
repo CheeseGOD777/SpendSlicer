@@ -43,9 +43,11 @@ datas.append((str(static_dir), "spendslicer/web/static"))
 datas += collect_data_files("botocore")
 datas += collect_data_files("boto3")
 
-# CUR warehouse. pyarrow and duckdb are compiled extensions with their own
-# shared libraries, so collect_all is required, not just hidden imports.
-for pkg in ("pyarrow", "duckdb"):
+# CUR warehouse. duckdb is a compiled extension with its own shared library,
+# so collect_all is required, not just a hidden import. PyArrow used to be
+# collected here too and was 118MB of a 254MB bundle — nothing imported it,
+# duckdb reads and writes Parquet natively.
+for pkg in ("duckdb",):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(pkg)
         datas += pkg_datas
@@ -83,6 +85,12 @@ hiddenimports += collect_submodules("spendslicer")
 # Test-only and plotting stacks that would otherwise ride along via transitive
 # imports and add tens of megabytes.
 excludes = [
+    # duckdb.polars_io imports pyarrow for optional Arrow/Polars interop we
+    # never touch, and collect_all("duckdb") drags it in — 117MB of a 253MB
+    # bundle. Verified duckdb reads and writes Parquet with pyarrow absent
+    # entirely (tests/test_cur_*.py pass in a venv without it).
+    "pyarrow",
+    "polars",
     "tkinter",
     "matplotlib",
     "PIL",

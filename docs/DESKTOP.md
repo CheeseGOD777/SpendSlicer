@@ -146,10 +146,10 @@ Output: `dist\SpendSlicer-<version>-windows-x64.zip`, plus
 3. `pyinstaller packaging/spendslicer.spec` freezes everything into one directory
 4. `hdiutil` (macOS) or `Compress-Archive` (Windows) packages it
 
-Expect roughly 250 MB unpacked. Two thirds of that is PyArrow (~118 MB) and
-DuckDB (~48 MB), which back the optional CUR warehouse. If you don't need CUR,
-drop `pyarrow` and `duckdb` from the `collect_all` loop in
-`packaging/spendslicer.spec` and the build lands around 90 MB.
+Expect roughly 135 MB unpacked. DuckDB (~48 MB) is the single biggest piece
+and backs the optional CUR warehouse. If you don't need CUR, drop `duckdb`
+from the `collect_all` loop in `packaging/spendslicer.spec` and the build
+lands around 90 MB.
 
 ---
 

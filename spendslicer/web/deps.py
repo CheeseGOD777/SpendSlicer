@@ -261,11 +261,11 @@ COMMON_REGIONS: list[tuple[str, str]] = [
 # ---------------------------------------------------------------------------
 
 # Rolling/relative range periods. Specific calendar months are handled
-# separately via the YYYY-MM form (see ``_MONTH_PERIOD_RE``).
+# separately via the YYYY-MM form (see ``MONTH_PERIOD_RE``).
 _RANGE_PERIODS = ("mtd", "last_month", "30d", "60d", "90d", "3m", "6m", "12m")
 
 # A specific calendar month, e.g. "2026-05". Month 01..12 only.
-_MONTH_PERIOD_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+MONTH_PERIOD_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 
 # How many recent calendar months to offer in the month picker.
 _MONTH_PICKER_COUNT = 12
@@ -278,7 +278,28 @@ def is_valid_period(period: str) -> bool:
     ``period`` everywhere it is reflected (templates, cache keys, CE calls),
     closing the reflected-XSS / cache-poisoning vector.
     """
-    return period in _RANGE_PERIODS or bool(_MONTH_PERIOD_RE.match(period or ""))
+    return period in _RANGE_PERIODS or bool(MONTH_PERIOD_RE.match(period or ""))
+
+
+# AWS region-code shape. Region reaches cache keys, so an arbitrary string
+# would mint unbounded keys; anything unrecognised clamps to the sentinel.
+_REGION_RE = re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
+
+ALL_REGIONS = "all"
+
+
+def safe_region(region: str) -> str:
+    """Clamp a client-supplied region to a real code or the ALL sentinel."""
+    return region if (region == ALL_REGIONS or _REGION_RE.match(region or "")) else ALL_REGIONS
+
+
+def safe_period(period: str, default: str = "mtd") -> str:
+    """Clamp a client-supplied period to the validated allow-list.
+
+    Applied at every route entry so an arbitrary string can neither reach a
+    Cost Explorer call nor inflate the cache-key space.
+    """
+    return period if is_valid_period(period) else default
 
 
 def period_to_window(period: str):
@@ -290,7 +311,7 @@ def period_to_window(period: str):
         trailing_months,
     )
 
-    m = _MONTH_PERIOD_RE.match(period or "")
+    m = MONTH_PERIOD_RE.match(period or "")
     if m:
         return month_window(int(m.group(1)), int(m.group(2)))
 

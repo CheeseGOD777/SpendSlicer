@@ -42,7 +42,3 @@ def frontend_dist() -> Path | None:
             return candidate
     return None
 
-
-def is_frozen() -> bool:
-    """True when running from a PyInstaller bundle."""
-    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")

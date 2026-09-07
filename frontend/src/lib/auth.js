@@ -58,15 +58,3 @@ if (typeof window !== "undefined") {
 
 /** Headers to merge into every API request. Empty when no token is in play. */
 export const authHeaders = () => (token ? { "X-SpendSlicer-Token": token } : {});
-
-/** Append the token to a URL — for navigations that can't carry a header. */
-export const withToken = (url) => {
-  if (!token) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}token=${encodeURIComponent(token)}`;
-};
-
-/** Test seam. */
-export const __setToken = (t) => {
-  token = t || "";
-};

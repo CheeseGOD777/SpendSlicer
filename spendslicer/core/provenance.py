@@ -83,19 +83,3 @@ class CostValue:
 
 VARIANCE_WARN_THRESHOLD_PCT = 1.0
 
-
-def variance_warning(provenance: Provenance) -> str | None:
-    """Return a warning message if attribution drift exceeds threshold, else None.
-
-    Surfaces accuracy issues in the UI before the user hits a mystery
-    mismatch against the Billing console.
-    """
-    v = provenance.variance_from_ground_truth_pct
-    if v is None:
-        return None
-    if abs(v) > VARIANCE_WARN_THRESHOLD_PCT:
-        return (
-            f"Attribution total differs from Cost Explorer by {v:+.2f}%. "
-            f"Displayed numbers have been normalized to CE; see provenance for details."
-        )
-    return None

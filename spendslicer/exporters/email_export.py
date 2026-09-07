@@ -8,8 +8,6 @@ Supports two backends:
 from __future__ import annotations
 
 import html
-import smtplib
-import ssl
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -110,53 +108,6 @@ def send_via_ses(
                     "Body": {"Html": {"Data": _build_html_body(report)}},
                 },
             )
-        return ExportResult(format="email", destination=dest, success=True)
-    except Exception as exc:
-        return ExportResult(format="email", destination=dest, success=False, error=str(exc))
-
-
-def send_via_smtp(
-    report: dict,
-    to_addresses: list[str],
-    from_address: str,
-    smtp_host: str,
-    smtp_port: int = 587,
-    smtp_user: str | None = None,
-    smtp_password: str | None = None,
-    subject: str | None = None,
-    attachment_path: str | Path | None = None,
-) -> ExportResult:
-    """Send a cost report email via SMTP (no extra dependencies)."""
-    subj = subject or f"AWS Cost Report — {report.get('account', '')} {report.get('period', '')}"
-    dest = ", ".join(to_addresses)
-    try:
-        msg = MIMEMultipart("mixed")
-        msg["Subject"] = subj
-        msg["From"] = from_address
-        msg["To"] = ", ".join(to_addresses)
-        alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(_build_html_body(report), "html"))
-        msg.attach(alt)
-
-        if attachment_path:
-            p = Path(attachment_path)
-            with p.open("rb") as f:
-                part = MIMEApplication(f.read(), Name=p.name)
-                part["Content-Disposition"] = f'attachment; filename="{p.name}"'
-                msg.attach(part)
-
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.ehlo()
-            # Pass an explicit default SSL context so STARTTLS performs
-            # certificate AND hostname verification. Without it, smtplib uses a
-            # context that verifies nothing, letting an on-path attacker present
-            # any cert and capture the SMTP credentials sent on the next line.
-            server.starttls(context=ssl.create_default_context())
-            server.ehlo()
-            if smtp_user and smtp_password:
-                server.login(smtp_user, smtp_password)
-            server.sendmail(from_address, to_addresses, msg.as_string())
-
         return ExportResult(format="email", destination=dest, success=True)
     except Exception as exc:
         return ExportResult(format="email", destination=dest, success=False, error=str(exc))

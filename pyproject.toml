@@ -34,22 +34,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cli = [
-    "typer>=0.12",
-    "rich>=13.7",
-]
 web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
-    "jinja2>=3.1",
-    "python-multipart>=0.0.9",
 ]
 exporters = [
     "slack-sdk>=3.27",
 ]
 cur = [
     "duckdb>=1.0",
-    "pyarrow>=15.0",
 ]
 # Native desktop shell (the .dmg / .exe builds). pywebview renders the
 # dashboard in the OS webview: WebKit on macOS, WebView2 on Windows.
@@ -72,7 +65,7 @@ build = [
     "pyinstaller>=6.6",
 ]
 all = [
-    "spendslicer[cli,web,exporters,cur]",
+    "spendslicer[web,exporters,cur]",
 ]
 
 [project.scripts]

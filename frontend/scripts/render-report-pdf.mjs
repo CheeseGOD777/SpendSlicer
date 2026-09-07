@@ -157,12 +157,25 @@ const launchBrowser = async () => {
   try {
     return await puppeteer.launch({ headless: true });
   } catch {
+    // Puppeteer's own download is the happy path; these are for when it is
+    // missing or cannot execute. The list was Linux-only, so on macOS — the
+    // documented dev platform — a machine with Chrome sitting in /Applications
+    // still failed with "Chrome executable not found".
     const candidates = [
       process.env.PUPPETEER_EXECUTABLE_PATH,
+      // macOS
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      // Linux
       "/usr/bin/chromium-browser",
       "/usr/bin/chromium",
       "/usr/bin/google-chrome-stable",
       "/usr/bin/google-chrome",
+      // Windows
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
     ];
     for (const p of candidates) {
       if (await exists(p)) {

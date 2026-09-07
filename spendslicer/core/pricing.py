@@ -123,27 +123,6 @@ def _fetch_from_api(session: boto3.Session, service_code: str, filters: list[dic
         return None
 
 
-def ec2_on_demand_rate(session: boto3.Session, instance_type: str, region: str = "ap-south-1") -> float:
-    key = f"ec2:{region}:{instance_type}"
-    cached = _cache_get(key)
-    if cached is not None:
-        return cached
-
-    location = _region_to_location(region)
-    price = _fetch_from_api(session, "AmazonEC2", [
-        {"Type": "TERM_MATCH", "Field": "instanceType",   "Value": instance_type},
-        {"Type": "TERM_MATCH", "Field": "location",       "Value": location},
-        {"Type": "TERM_MATCH", "Field": "operatingSystem","Value": "Linux"},
-        {"Type": "TERM_MATCH", "Field": "tenancy",        "Value": "Shared"},
-        {"Type": "TERM_MATCH", "Field": "preInstalledSw", "Value": "NA"},
-        {"Type": "TERM_MATCH", "Field": "capacitystatus", "Value": "Used"},
-    ])
-    if price is None:
-        price = FALLBACK_RATES["ec2"].get(instance_type, 0.0)
-    _cache_set(key, price)
-    return price
-
-
 def ebs_rate(session: boto3.Session, volume_type: str, region: str = "ap-south-1") -> float:
     key = f"ebs:{region}:{volume_type}"
     cached = _cache_get(key)

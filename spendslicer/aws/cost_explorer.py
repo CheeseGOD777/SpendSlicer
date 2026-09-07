@@ -23,7 +23,6 @@ Design rules
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -463,10 +462,3 @@ class CostExplorerClient:
 
 # Convenience top-level factories for callers that don't want to hold a client.
 
-def client_for(session: boto3.Session) -> CostExplorerClient:
-    return CostExplorerClient(session)
-
-
-def group_keys(groups: Iterable[GroupedCost]) -> list[str]:
-    """Shortcut: primary keys of a grouped result in CE-returned order."""
-    return [g.primary_key() for g in groups]

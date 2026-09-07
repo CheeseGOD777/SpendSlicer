@@ -21,13 +21,14 @@ from spendslicer.core.time_windows import (
 from spendslicer.core.types import Granularity, TimeWindow
 from spendslicer.web.context import friendly_error
 from spendslicer.web.deps import (
+    MONTH_PERIOD_RE,
     cache_get,
     cache_set,
     get_ce_client,
     get_cost_source,
     get_session,
-    is_valid_period,
     period_to_window,
+    safe_period,
 )
 
 router = APIRouter(prefix="/api/cost")
@@ -46,17 +47,6 @@ def _fanout_pool():
     yield _FANOUT_POOL
 
 # A specific calendar month period, e.g. "2026-05".
-_MONTH_PERIOD_RE = __import__("re").compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
-
-
-def _safe_period(period: str, default: str = "mtd") -> str:
-    """Clamp a client-supplied period to the validated allow-list.
-
-    Applied at every route entry so an arbitrary string can neither reach a
-    CE call nor inflate the cache-key space (the unbounded-key finding)."""
-    return period if is_valid_period(period) else default
-
-
 def _account_tag(profile: str) -> str:
     """Resolved account id for ``profile`` from the (cached) profile choices.
 
@@ -91,7 +81,7 @@ def _trend_granularity_for_period(period: str) -> Granularity:
     # "90d"/"60d" share last_n_days windows with "3m" and need DAILY for the
     # same reason — MONTHLY rendered their truncated edge buckets as
     # full-month bars ("Apr $2,200" for 22 days of April).
-    if period in ("mtd", "30d", "60d", "90d", "3m", "last_month") or _MONTH_PERIOD_RE.match(period or ""):
+    if period in ("mtd", "30d", "60d", "90d", "3m", "last_month") or MONTH_PERIOD_RE.match(period or ""):
         return Granularity.DAILY
     return Granularity.MONTHLY
 
@@ -130,7 +120,7 @@ def _prev_window(period: str, window: TimeWindow) -> TimeWindow:
         return TimeWindow(start=prev_first, end=end)
     if period == "last_month":
         return month_before_last()
-    m = _MONTH_PERIOD_RE.match(period or "")
+    m = MONTH_PERIOD_RE.match(period or "")
     if m:
         # Previous calendar month relative to the selected month's 1st.
         prev_first = (window.start - timedelta(days=1)).replace(day=1)
@@ -151,7 +141,7 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         "period": period,
         "cost_basis_label": "Pre-credit · excludes Credit/Refund · UTC",
     }
-    period = _safe_period(period)
+    period = safe_period(period)
     ctx["period"] = period
     try:
         session = get_session(profile)
@@ -169,7 +159,7 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
         # window that reaches into the current month. For a specific historical
         # month (e.g. viewing April while it's June) there is nothing to
         # forecast, so skip the forecast + this-month matrix calls entirely.
-        is_specific_month = bool(_MONTH_PERIOD_RE.match(period))
+        is_specific_month = bool(MONTH_PERIOD_RE.match(period))
         fcast_window = None if is_specific_month else remainder_of_current_month()
         want_forecast = fcast_window is not None
         # On the last day of the month there is no remainder to forecast; the
@@ -263,7 +253,7 @@ def _build_summary_ctx(profile: str, period: str) -> dict:
 
 def _build_services_ctx(profile: str, period: str, limit: int) -> dict:
     ctx: dict = {"error": None, "services": [], "total": 0.0, "cost_basis_label": ""}
-    period = _safe_period(period)
+    period = safe_period(period)
     try:
         session = get_session(profile)
         spec = pre_credit_gross()
@@ -323,7 +313,7 @@ def api_cost_summary_data(
     profile: str = Query("default"),
     period: str = Query("mtd"),
 ):
-    period = _safe_period(period)
+    period = safe_period(period)
     ckey = f"summary_json:{_account_tag(profile)}:{profile}:{period}"
     cached = cache_get(ckey)
     if cached:
@@ -339,7 +329,7 @@ def api_cost_services_data(
     period: str = Query("mtd"),
     limit: int = Query(0),
 ):
-    period = _safe_period(period)
+    period = safe_period(period)
     ckey = f"services_json:{_account_tag(profile)}:{profile}:{period}:{limit}"
     cached = cache_get(ckey)
     if cached:
@@ -421,7 +411,7 @@ def _cap_usage_types(usage_map: dict[str, float], cap: int = _USAGE_TYPES_PER_SE
 
 def _build_services_composition_ctx(profile: str, period: str) -> dict:
     ctx: dict = {"error": None, "services": {}, "cost_basis_label": ""}
-    period = _safe_period(period)
+    period = safe_period(period)
     try:
         session = get_session(profile)
         ce = get_ce_client(session)
@@ -469,7 +459,7 @@ def api_cost_services_composition_data(
     profile: str = Query("default"),
     period: str = Query("mtd"),
 ):
-    period = _safe_period(period)
+    period = safe_period(period)
     ckey = f"services_composition_json:{_account_tag(profile)}:{profile}:{period}"
     cached = cache_get(ckey)
     if cached:
@@ -481,7 +471,7 @@ def api_cost_services_composition_data(
 
 @router.get("/trend/data")
 def api_trend_data(profile: str = Query("default"), period: str = Query("3m")):
-    period = _safe_period(period, default="3m")
+    period = safe_period(period, default="3m")
     gran = _trend_granularity_for_period(period)
     ckey = f"trend_data:{_account_tag(profile)}:{profile}:{period}:{gran.value}"
     cached = cache_get(ckey)
@@ -509,7 +499,7 @@ def api_trend_table_data(
     profile: str = Query("default"),
     period: str = Query("3m"),
 ):
-    period = _safe_period(period, default="3m")
+    period = safe_period(period, default="3m")
     gran = _trend_granularity_for_period(period)
     ckey = f"trend_table_json:{_account_tag(profile)}:{profile}:{period}:{gran.value}"
     cached = cache_get(ckey)

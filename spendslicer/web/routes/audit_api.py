@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
@@ -12,23 +11,19 @@ from spendslicer.audit.runner import run_audit
 from spendslicer.aws.session import load_profile_bundle
 from spendslicer.resources.runner import ALL_REGIONS
 from spendslicer.web.context import friendly_error
-from spendslicer.web.deps import cache_get_swr, cache_set, schedule_refresh
+from spendslicer.web.deps import (
+    cache_get_swr,
+    cache_set,
+    safe_region,
+    schedule_refresh,
+)
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/audit")
 
-# Validate region before it lands in a cache key: AWS region code
-# shape, or the ALL_REGIONS sentinel; anything else clamps to ALL_REGIONS.
-_REGION_RE = re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
-
-
-def _safe_region(region: str) -> str:
-    return region if (region == ALL_REGIONS or _REGION_RE.match(region or "")) else ALL_REGIONS
-
-
 def build_audit_ctx(profile: str, region: str, include_snapshots: int) -> dict:
-    region = _safe_region(region)  # clamp here too, so a bad region can't poison the clamped cache key
+    region = safe_region(region)  # clamp here too, so a bad region can't poison the clamped cache key
     ctx: dict = {
         "error": None,
         "idle": [],
@@ -75,7 +70,7 @@ def api_audit_summary_data(
     region: str = Query(ALL_REGIONS),
     include_snapshots: int = Query(0),
 ):
-    ckey = f"audit:{profile}:{_safe_region(region)}:{include_snapshots}"
+    ckey = f"audit:{profile}:{safe_region(region)}:{include_snapshots}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         cached = build_audit_ctx(profile, region, include_snapshots)

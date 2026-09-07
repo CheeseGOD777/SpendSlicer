@@ -192,12 +192,3 @@ def pre_credit_gross() -> CostFilterSpec:
         excluded_record_types=("Credit", "Refund", "Upfront"),
     )
 
-
-def net_after_credits() -> CostFilterSpec:
-    """All record types (net cost after credits apply). Opt-in only.
-
-    Equivalent to what AWS shows in some invoice views where credits
-    zero out usage. Not useful as a default for active free-tier /
-    credit-heavy accounts.
-    """
-    return CostFilterSpec()

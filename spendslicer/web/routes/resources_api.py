@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re as _re
-
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -19,25 +17,15 @@ from spendslicer.web.deps import (
     get_ce_client,
     get_cost_source,
     get_session,
-    is_valid_period,
     period_to_window,
+    safe_period,
+    safe_region,
     schedule_refresh,
 )
 
 router = APIRouter(prefix="/api/resources")
 
 # AWS region code shape, or the ALL_REGIONS sentinel. Clamp unknown values so a
-# client-supplied region can't mint unbounded cache keys.
-_REGION_RE = _re.compile(r"^[a-z]{2}-[a-z]+-\d{1,2}$")
-
-
-def _safe_region(region: str) -> str:
-    return region if (region == ALL_REGIONS or _REGION_RE.match(region or "")) else ALL_REGIONS
-
-
-def _safe_period(period: str) -> str:
-    return period if is_valid_period(period) else "mtd"
-
 # Hard server-side caps on the number of per-resource rows returned to the
 # browser. Even when a caller requests an unbounded list (limit <= 0) we never
 # materialize/serialize the entire account resource list into the response.
@@ -76,8 +64,8 @@ def build_resources_ctx(profile: str, period: str, region: str) -> dict:
     # Clamp here too (not just in the cache key) so an invalid region/period
     # can't drive a failing enumeration whose error then gets cached under the
     # clamped key, poisoning legitimate requests.
-    region = _safe_region(region)
-    period = _safe_period(period)
+    region = safe_region(region)
+    period = safe_period(period)
     ctx: dict = {
         "error": None,
         "rows": [],
@@ -205,7 +193,7 @@ def api_resources_data(
     service: str = Query(""),
     limit: int = Query(0),
 ):
-    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
+    ckey = f"resources:{profile}:{safe_period(period)}:{safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         cached = cold_single_flight(
@@ -238,7 +226,7 @@ def api_resources_top_data(
     limit: int = Query(10),
 ):
     # Fast path for dashboard: never block first paint on full attribution scan.
-    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
+    ckey = f"resources:{profile}:{safe_period(period)}:{safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
         schedule_refresh(
@@ -290,7 +278,7 @@ def api_resources_services_data(
     period: str = Query("mtd"),
     region: str = Query(ALL_REGIONS),
 ):
-    ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
+    ckey = f"resources:{profile}:{safe_period(period)}:{safe_region(region)}"
     cached = cache_get(ckey)
     if not cached:
         cached = build_resources_ctx(profile, period, region)

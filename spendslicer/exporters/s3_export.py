@@ -42,24 +42,3 @@ def upload_file(
         return ExportResult(format="s3", destination=dest, success=True, bytes_written=size)
     except (ClientError, FileNotFoundError) as exc:
         return ExportResult(format="s3", destination=dest, success=False, error=str(exc))
-
-
-def upload_bytes(
-    data: bytes,
-    bucket: str,
-    key: str,
-    content_type: str = "application/octet-stream",
-    session: boto3.Session | None = None,
-    extra_args: dict | None = None,
-) -> ExportResult:
-    """Upload raw bytes to S3 without a temp file."""
-    dest = f"s3://{bucket}/{key}"
-    boto_extra = dict(extra_args or {})
-    boto_extra.setdefault("ContentType", content_type)
-
-    s3 = (session or boto3.Session()).client("s3")
-    try:
-        s3.put_object(Bucket=bucket, Key=key, Body=data, **boto_extra)
-        return ExportResult(format="s3", destination=dest, success=True, bytes_written=len(data))
-    except ClientError as exc:
-        return ExportResult(format="s3", destination=dest, success=False, error=str(exc))
