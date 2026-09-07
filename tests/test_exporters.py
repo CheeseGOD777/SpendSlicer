@@ -171,3 +171,86 @@ def test_export_result_to_dict_has_required_keys():
     assert "format" in d
     assert "success" in d
     assert "exported_at" in d
+
+
+# ---------------------------------------------------------------------------
+# CSV must carry every section the report has
+# ---------------------------------------------------------------------------
+
+_FULL_REPORT = {
+    "account": "acct", "period": "last_month", "total_cost_usd": 100.0,
+    "services_count": 2, "resources_count": 2,
+    "top_services": [
+        {"service": "Amazon EC2", "cost_usd": 60.0},
+        {"service": "Amazon S3", "cost_usd": 40.0},
+    ],
+    "top_resources": [
+        {"resource_id": "i-1", "name": "web-1", "service": "EC2", "region": "us-east-1",
+         "cost": 35.0, "usage_amount": 720.0, "tags": {"Name": "web-1", "Env": "prod"}},
+        {"resource_id": "vol-1", "name": "data", "service": "EBS", "region": "us-east-1",
+         "cost": 25.0, "usage_amount": 100.0, "tags": {}},
+    ],
+    "trend_points": [{"period": "2026-08", "cost_usd": 100.0}],
+    "budget_findings": [{"budget_name": "monthly", "actual_spend": 100.0,
+                         "limit_amount": 80.0, "forecasted_spend": 120.0,
+                         "utilization_pct": 125.0, "status": "breached",
+                         "breach_reason": "over"}],
+}
+
+
+def test_csv_includes_every_report_section():
+    """CSV shipped only top_services + TOTAL, dropping resources/trend/budgets.
+
+    JSON and PDF carried all four, so a 91-resource account exported a
+    21-row CSV with none of the per-resource attribution.
+    """
+    from spendslicer.exporters.scheduler import _report_to_csv_rows
+
+    rows = _report_to_csv_rows(_FULL_REPORT)
+    got = {}
+    for r in rows:
+        got[r["section"]] = got.get(r["section"], 0) + 1
+
+    assert got.get("service") == 2, got
+    assert got.get("resource") == 2, got
+    assert got.get("trend") == 1, got
+    assert got.get("budget") == 1, got
+    assert got.get("total") == 1, got
+
+
+def test_csv_resource_rows_keep_their_identity():
+    from spendslicer.exporters.scheduler import _report_to_csv_rows
+
+    res = [r for r in _report_to_csv_rows(_FULL_REPORT) if r["section"] == "resource"]
+    ids = {r["resource_id"] for r in res}
+    assert ids == {"i-1", "vol-1"}
+    first = next(r for r in res if r["resource_id"] == "i-1")
+    assert first["name"] == "web-1"
+    assert first["cost_usd"] == 35.0          # sourced from "cost", not "cost_usd"
+    assert first["tags"] == "Env=prod; Name=web-1"   # flattened, not a dict
+
+
+def test_csv_tags_do_not_explode_the_header():
+    """Tag dicts must be stringified: export_csv expands nested dicts into
+    dot-notation columns, so raw tags would add a column per customer tag key."""
+    from spendslicer.exporters.csv_export import to_csv_string
+    from spendslicer.exporters.scheduler import _report_to_csv_rows
+
+    report = dict(_FULL_REPORT)
+    report["top_resources"] = [
+        {"resource_id": f"i-{i}", "name": f"n{i}", "service": "EC2", "cost": 1.0,
+         "tags": {f"tag{i}": "v"}}
+        for i in range(20)
+    ]
+    header = to_csv_string(_report_to_csv_rows(report)).splitlines()[0]
+    assert "tags" in header
+    assert "tags.tag0" not in header
+    assert len(header.split(",")) < 20, header
+
+
+def test_csv_trend_bucket_does_not_overwrite_report_period():
+    from spendslicer.exporters.scheduler import _report_to_csv_rows
+
+    trend = next(r for r in _report_to_csv_rows(_FULL_REPORT) if r["section"] == "trend")
+    assert trend["period"] == "last_month"   # the report-wide selection
+    assert trend["name"] == "2026-08"        # the bucket label

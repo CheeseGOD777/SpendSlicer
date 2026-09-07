@@ -110,38 +110,89 @@ def run_scheduled_export(
     return results
 
 
-def _report_to_csv_rows(report: dict) -> list[dict]:
-    """Flatten the top-services section of a report for CSV output.
+def _tags_to_str(tags) -> str:
+    """Collapse a tag dict to ``k=v; k=v``.
 
-    ``top_services`` is capped (25); without the tail + TOTAL rows a
-    spreadsheet SUM over the CSV silently disagreed with the PDF/JSON total
-    from the same run.
+    Not left as a dict: export_csv flattens nested dicts into dot-notation
+    columns, so arbitrary customer tag keys would each become their own
+    column and the header would grow with every distinct tag in the account.
     """
-    rows = []
-    top = report.get("top_services", [])
+    if isinstance(tags, dict):
+        return "; ".join(f"{k}={v}" for k, v in sorted(tags.items()) if v not in (None, ""))
+    if isinstance(tags, (list, tuple)):
+        return "; ".join(str(t) for t in tags)
+    return str(tags or "")
+
+
+def _report_to_csv_rows(report: dict) -> list[dict]:
+    """Flatten every section of a report for CSV output.
+
+    This used to emit ``top_services`` and a TOTAL only, silently dropping
+    the resources, trend and budget sections that JSON and PDF both carry —
+    so the CSV of a 91-resource account contained 21 rows and none of the
+    per-resource attribution the tool exists to produce.
+
+    One flat table with a ``section`` column rather than several files: the
+    download endpoint serves a single file per format, and a spreadsheet can
+    filter on one column. Rows carry different fields; export_csv unions the
+    keys and leaves the rest blank.
+    """
+    account = report.get("account", "")
+    period = report.get("period", "")
+
+    def base(section: str) -> dict:
+        return {"section": section, "account": account, "period": period}
+
+    rows: list[dict] = []
+
+    top = report.get("top_services") or []
     for svc in top:
-        rows.append({
-            "account": report.get("account", ""),
-            "period": report.get("period", ""),
-            "service": svc.get("service", ""),
-            "cost_usd": svc.get("cost_usd", 0),
-        })
+        rows.append({**base("service"),
+                     "service": svc.get("service", ""),
+                     "cost_usd": svc.get("cost_usd", 0)})
+
+    # top_services is capped, so without the tail + TOTAL rows a spreadsheet
+    # SUM over the CSV disagrees with the PDF/JSON total from the same run.
     total = report.get("total_cost_usd")
     if total is not None:
         top_sum = sum(float(s.get("cost_usd", 0) or 0) for s in top)
         tail = total - top_sum
         services_count = report.get("services_count", len(top))
         if services_count > len(top) and tail > 0.005:
-            rows.append({
-                "account": report.get("account", ""),
-                "period": report.get("period", ""),
-                "service": f"(other {services_count - len(top)} services)",
-                "cost_usd": round(tail, 4),
-            })
-        rows.append({
-            "account": report.get("account", ""),
-            "period": report.get("period", ""),
-            "service": "TOTAL",
-            "cost_usd": total,
-        })
+            rows.append({**base("service"),
+                         "service": f"(other {services_count - len(top)} services)",
+                         "cost_usd": round(tail, 4)})
+
+    for r in report.get("top_resources") or []:
+        rows.append({**base("resource"),
+                     "service": r.get("service", ""),
+                     "resource_id": r.get("resource_id", ""),
+                     "name": r.get("name", ""),
+                     "region": r.get("region", ""),
+                     # Resource rows call it "cost"; keep one cost column so a
+                     # single SUM works across sections.
+                     "cost_usd": r.get("cost", r.get("cost_usd", 0)),
+                     "usage_amount": r.get("usage_amount", ""),
+                     "tags": _tags_to_str(r.get("tags"))})
+
+    for pt in report.get("trend_points") or []:
+        # The bucket label goes in `name`, not `period` — `period` already
+        # holds the report-wide selection and would be overwritten.
+        rows.append({**base("trend"),
+                     "name": pt.get("period", ""),
+                     "cost_usd": pt.get("cost_usd", 0)})
+
+    for b in report.get("budget_findings") or []:
+        rows.append({**base("budget"),
+                     "name": b.get("budget_name", ""),
+                     "cost_usd": b.get("actual_spend", ""),
+                     "limit_usd": b.get("limit_amount", ""),
+                     "forecasted_usd": b.get("forecasted_spend", ""),
+                     "utilization_pct": b.get("utilization_pct", ""),
+                     "status": b.get("status", ""),
+                     "detail": b.get("breach_reason", "")})
+
+    if total is not None:
+        rows.append({**base("total"), "service": "TOTAL", "cost_usd": total})
+
     return rows
