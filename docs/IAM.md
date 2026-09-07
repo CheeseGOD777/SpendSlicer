@@ -54,7 +54,15 @@ rather grant only what is used, the policy below is the exact set.
         "dynamodb:ListTagsOfResource",
         "s3:ListAllMyBuckets",
         "s3:GetBucketLocation",
-        "s3:GetBucketTagging"
+        "s3:GetBucketTagging",
+        "ec2:DescribeNatGateways",
+        "elasticache:DescribeCacheClusters",
+        "ecr:DescribeRepositories",
+        "ecr:DescribeImages",
+        "elasticfilesystem:DescribeFileSystems",
+        "secretsmanager:ListSecrets",
+        "cloudfront:ListDistributions",
+        "route53:ListHostedZones"
       ],
       "Resource": "*"
     },
@@ -107,7 +115,14 @@ working.
 | `s3:ListAllMyBuckets`, `s3:GetBucketLocation` | Per-bucket attribution | S3 shows as an unattributed total |
 | `s3:GetBucketTagging` | Bucket tags in the untagged audit | Buckets appear untagged even when they aren't |
 | `s3:ListBucket`, `s3:GetObject` on the CUR bucket | CUR ingest (optional) | CUR warehouse can't sync; Cost Explorer path is unaffected |
-| `cloudwatch:GetMetricStatistics` | Idle EC2/RDS/ELB detection | Idle detection is skipped |
+| `ec2:DescribeNatGateways` | Naming NAT gateways | Gateway cost stays lumped in the opaque `EC2 - Other` bucket |
+| `elasticache:DescribeCacheClusters` | ElastiCache attribution | ElastiCache shows as an unattributed total |
+| `ecr:DescribeRepositories`, `ecr:DescribeImages` | Per-repository ECR cost | ECR shows as an unattributed total |
+| `elasticfilesystem:DescribeFileSystems` | EFS attribution | EFS shows as an unattributed total |
+| `secretsmanager:ListSecrets` | Per-secret cost | Secrets Manager shows as an unattributed total |
+| `cloudfront:ListDistributions` | Per-distribution cost | CloudFront shows as an unattributed total |
+| `route53:ListHostedZones` | Per-hosted-zone cost | Route 53 shows as an unattributed total |
+| `cloudwatch:GetMetricStatistics` | Idle EC2/RDS/ELB detection, CloudFront traffic weighting | Idle detection skipped; CloudFront splits equally instead of by traffic |
 | `pricing:GetProducts` | Live on-demand rates | Falls back to a built-in rate table, currently `ap-south-1` only |
 | `budgets:ViewBudget` | Budget breach alerts | Budgets panel is empty |
 

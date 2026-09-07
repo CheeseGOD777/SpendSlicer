@@ -18,14 +18,21 @@ from spendslicer.core.filters import CostFilterSpec, pre_credit_gross
 from spendslicer.core.types import TimeWindow
 
 from .base import AttributedResource
+from .cloudfront import attribute_cloudfront
 from .dynamodb import attribute_dynamodb
 from .ebs import attribute_ebs
 from .ec2 import attribute_ec2_account, describe_instances_raw, live_instance_names
+from .ecr import attribute_ecr
+from .efs import attribute_efs
 from .eip import attribute_eip
+from .elasticache import attribute_elasticache
 from .elb import attribute_elb
 from .lambda_fn import attribute_lambda
+from .natgateway import attribute_nat_gateways
 from .rds import attribute_rds
+from .route53 import attribute_route53
 from .s3 import attribute_s3_all
+from .secretsmanager import attribute_secrets
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +57,16 @@ SERVICE_TO_CE: dict[str, str] = {
     "Lambda": "AWS Lambda",
     "S3": "Amazon Simple Storage Service",
     "DynamoDB": "Amazon DynamoDB",
+    # NAT gateways bill under the same CE service as EBS and Elastic IPs,
+    # which is why their cost is so easy to mistake for volume spend.
+    "NATGateway": "EC2 - Other",
+    "ElastiCache": "Amazon ElastiCache",
+    "SecretsManager": "AWS Secrets Manager",
+    "ECR": "Amazon EC2 Container Registry (ECR)",
+    "EFS": "Amazon Elastic File System",
+    # Global services: one work unit per account, not per region.
+    "CloudFront": "Amazon CloudFront",
+    "Route53": "Amazon Route 53",
 }
 
 ENUMERATED_CE_SERVICES: set[str] = set(SERVICE_TO_CE.values())
@@ -59,14 +76,17 @@ ALL_REGIONS = "all"
 # (bucket label, CE service name, display service for the remainder row).
 # EIP is absent on purpose: its rows are exact-rate and reconcile against the
 # VPC aggregate instead (see _reconcile_pools).
-_REMAINDER_POOLS: list[tuple[str, str, str]] = [
-    ("EC2", "Amazon Elastic Compute Cloud - Compute", "EC2"),
-    ("EBS", "EC2 - Other", "EC2-Other"),
-    ("RDS", "Amazon Relational Database Service", "RDS"),
-    ("ELB", "Amazon Elastic Load Balancing", "ELB"),
-    ("Lambda", "AWS Lambda", "Lambda"),
-    ("DynamoDB", "Amazon DynamoDB", "DynamoDB"),
-    ("S3", "Amazon Simple Storage Service", "S3"),
+# (bucket labels sharing the pool, CE service name, display label). EC2 - Other
+# is shared: EBS volumes and NAT gateways both bill into it, so the remainder
+# has to net off BOTH or the gap is overstated by whatever NAT already claims.
+_REMAINDER_POOLS: list[tuple[tuple[str, ...], str, str]] = [
+    (("EC2",), "Amazon Elastic Compute Cloud - Compute", "EC2"),
+    (("EBS", "NATGateway"), "EC2 - Other", "EC2-Other"),
+    (("RDS",), "Amazon Relational Database Service", "RDS"),
+    (("ELB",), "Amazon Elastic Load Balancing", "ELB"),
+    (("Lambda",), "AWS Lambda", "Lambda"),
+    (("DynamoDB",), "Amazon DynamoDB", "DynamoDB"),
+    (("S3",), "Amazon Simple Storage Service", "S3"),
 ]
 
 
@@ -220,9 +240,18 @@ def _reconcile_pools(
     under-priced every address. To avoid double counting, the VPC aggregate
     row is reduced by whatever the EIP rows already attribute.
     """
-    # EBS rescaled to the shared "EC2 - Other" CE pool, clamped.
+    # NAT gateway rows are NOT rescaled, for the same reason EIP rows are not:
+    # the hourly charge is a known flat rate, so the priced figure is already
+    # exact. But NAT bills into the shared "EC2 - Other" pool, so leaving the
+    # pool at its full value let EBS rescale up to claim all of it while the
+    # NAT rows added their cost on top — double counting whatever the gateways
+    # cost. Net them off before EBS is rescaled.
+    nat_attributed = sum(r.cost_usd for r in buckets.get("NATGateway", []))
+    ec2_other_pool = max(
+        ce_total_by_service.get("EC2 - Other", 0.0) - nat_attributed, 0.0
+    )
     _rescale_rows(
-        buckets.get("EBS", []), ce_total_by_service.get("EC2 - Other", 0.0),
+        buckets.get("EBS", []), ec2_other_pool,
         "EBS", incomplete="EBS" in failed_services,
     )
 
@@ -307,13 +336,15 @@ def _reconcile_pools(
     # used to vanish — the service is excluded from the aggregate loop above,
     # so CE-vs-Resources drift silently swallowed real dollars. Surface the
     # gap as one labelled row per pool, mirroring the EC2 unmatched-bucket fix.
-    for bucket_label, ce_name, display_service in _REMAINDER_POOLS:
+    for bucket_labels, ce_name, display_service in _REMAINDER_POOLS:
         ce_tot = ce_total_by_service.get(ce_name, 0.0)
         if ce_tot <= 0.01:
             continue
-        if want is not None and bucket_label not in want:
+        if want is not None and not any(b in want for b in bucket_labels):
             continue
-        attributed = sum(r.cost_usd for r in buckets.get(bucket_label, []))
+        attributed = sum(
+            r.cost_usd for b in bucket_labels for r in buckets.get(b, [])
+        )
         remainder = ce_tot - attributed
         if remainder <= 0.01:
             continue
@@ -324,7 +355,7 @@ def _reconcile_pools(
             "pool shared with non-enumerable charges (NAT, snapshots, data "
             "transfer for EC2 - Other)."
         )
-        if bucket_label in failed_services:
+        if any(b in failed_services for b in bucket_labels):
             note += " This service's scan also failed partway, so rows are partial."
         other_rows.append(AttributedResource(
             service=display_service,
@@ -472,6 +503,16 @@ def enumerate_all(
         for reg in regions:
             work.append(("EC2", _mk_ec2(reg)))
 
+    # CloudFront and Route 53 have no regional endpoint: list_distributions and
+    # list_hosted_zones return the same set from every region. Submitting these
+    # per region would count every distribution and zone seventeen times.
+    if want_it("CloudFront"):
+        work.append(("CloudFront", lambda: attribute_cloudfront(
+            frozen_global, ws, we, ce_total("CloudFront"),
+        )))
+    if want_it("Route53"):
+        work.append(("Route53", lambda: attribute_route53(frozen_global, ws, we)))
+
     if want_it("S3"):
         # List buckets + resolve bucket regions ONCE, account-wide,
         # instead of per-region fan-out of attribute_s3. Use a frozen
@@ -493,10 +534,12 @@ def enumerate_all(
     # Falls back to the account-wide totals + post-fan-out normalization when
     # the call fails or only one region is scanned (already correctly scoped).
     lambda_ddb_regional: dict[tuple[str, str], float] = {}
-    if (want_it("Lambda") or want_it("DynamoDB")) and len(regions) > 1:
+    if (want_it("Lambda") or want_it("DynamoDB") or want_it("ECR")) and len(regions) > 1:
         try:
             lambda_ddb_regional = _service_region_totals(
-                ce_raw, ws, we, totals_spec, ["AWS Lambda", "Amazon DynamoDB"],
+                ce_raw, ws, we, totals_spec,
+                ["AWS Lambda", "Amazon DynamoDB",
+                 "Amazon EC2 Container Registry (ECR)"],
             )
         except Exception as exc:
             log.warning(
@@ -531,6 +574,21 @@ def enumerate_all(
             )))
         if want_it("EBS"):
             work.append(("EBS", _mk_ebs(reg)))
+        if want_it("NATGateway"):
+            work.append(("NATGateway", _mk(attribute_nat_gateways, reg)))
+        if want_it("ElastiCache"):
+            work.append(("ElastiCache", _mk(attribute_elasticache, reg)))
+        if want_it("SecretsManager"):
+            work.append(("SecretsManager", _mk(attribute_secrets, reg)))
+        if want_it("EFS"):
+            work.append(("EFS", _mk(attribute_efs, reg)))
+        if want_it("ECR"):
+            # ECR splits a CE total, so it needs the regional figure the same
+            # way Lambda and DynamoDB do.
+            work.append(("ECR", _mk(
+                attribute_ecr, reg,
+                _regional_total("Amazon EC2 Container Registry (ECR)", reg, "ECR"),
+            )))
 
     for label, _ in work:
         buckets.setdefault(label, [])

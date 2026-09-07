@@ -42,6 +42,8 @@ spendslicer/
   resources/    Per-resource attribution, one module per service
     runner.py        Parallel (service x region) fan-out, rescaling
     ec2.py ebs.py rds.py s3.py elb.py eip.py lambda_fn.py dynamodb.py
+    natgateway.py elasticache.py ecr.py efs.py secretsmanager.py
+    cloudfront.py route53.py      (the last two are account-global)
 
   audit/        Waste radar
     idle.py untagged.py budgets.py runner.py

@@ -337,9 +337,11 @@ const LIMITS = [
        renders as <code className="mono">?</code>. CSV and JSON carry those rows as UTF-8.</>,
   },
   {
-    t: "Named-resource coverage is eight services",
-    d: <>EC2, EBS, RDS, S3, ELB, Elastic IP, Lambda and DynamoDB. Spend on anything else still
-       appears in the service totals, which are exact.</>,
+    t: "Named-resource coverage is fifteen services",
+    d: <>EC2, EBS, RDS, S3, ELB, Elastic IP, Lambda, DynamoDB, NAT Gateway, ElastiCache,
+       ECR, EFS, Secrets Manager, CloudFront and Route 53 — with no setup. Enable the CUR
+       warehouse and every service AWS puts a resource ID on gets named. Anything still
+       unnamed appears in the service totals, which are exact.</>,
   },
   {
     t: "The fallback price table is one region",

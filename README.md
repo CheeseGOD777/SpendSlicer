@@ -26,6 +26,9 @@ SpendSlicer answers the questions you actually opened the console for:
 - **Top services and top resources** on one screen, sorted by spend
 - **Waste radar** — stopped EC2 still paying for EBS, unattached volumes,
   unassociated Elastic IPs, untagged resources, budget breaches
+- **Fifteen services named without setup** — EC2, EBS, RDS, S3, ELB, Elastic IP,
+  Lambda, DynamoDB, NAT Gateway, ElastiCache, ECR, EFS, Secrets Manager,
+  CloudFront and Route 53. Every service with the CUR warehouse enabled.
 - **Numbers you can defend** — every figure carries a provenance record saying
   which API produced it, over what window, with what filters
 

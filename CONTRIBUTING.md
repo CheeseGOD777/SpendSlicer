@@ -91,8 +91,13 @@ pytest --cov=spendslicer --cov-report=term-missing
 - **CUR-based attribution.** The highest-value work in the project. Exact
   per-resource costs from a local warehouse remove the estimation entirely.
   See [docs/CUR.md](docs/CUR.md).
-- **More service enumerators.** ECS, EKS, CloudFront, NAT Gateway, Route 53.
-  Follow the shape of `spendslicer/resources/rds.py` — it is the clearest example.
+- **More service enumerators.** Fifteen ship today; the notable gaps are
+  CloudWatch, X-Ray, API Gateway and SQS. Follow the shape of
+  `spendslicer/resources/rds.py` (priced from a rate) or
+  `spendslicer/resources/ecr.py` (splits a Cost Explorer total by a measured
+  weight). ECS and EKS are deliberately absent: Fargate tasks are ephemeral so
+  history cannot be rebuilt from the API, and EKS worker nodes already bill
+  under EC2.
 - **Regional pricing.** The fallback rate table in `core/pricing.py` only
   carries `ap-south-1`. Any additional region is a useful contribution.
 - **Windows and Linux testing.** Development happens on macOS; reports from

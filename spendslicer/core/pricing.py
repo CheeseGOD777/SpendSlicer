@@ -78,6 +78,28 @@ FALLBACK_RATES: dict = {
     },
     # EIP $/hour when not attached
     "eip_idle": 0.005,
+    # ElastiCache node hourly rates — ap-south-1, on-demand
+    "elasticache": {
+        "cache.t4g.micro":  0.017,
+        "cache.t4g.small":  0.034,
+        "cache.t4g.medium": 0.068,
+        "cache.t3.micro":   0.018,
+        "cache.t3.small":   0.036,
+        "cache.t3.medium":  0.072,
+        "cache.m6g.large":  0.128,
+        "cache.m5.large":   0.142,
+        "cache.r6g.large":  0.196,
+        "cache.r5.large":   0.216,
+    },
+    # Flat per-unit monthly charges. These are the same in every commercial
+    # region, which is why they need no Pricing API call at all.
+    "secretsmanager_secret_month": 0.40,
+    "route53_zone_month": 0.50,
+    # NAT gateway $/hour. Data processing is billed on top at ~$0.045/GB and
+    # is NOT included here — see the natgateway enumerator.
+    "natgateway_hour": 0.045,
+    # EFS Standard storage $/GB-month
+    "efs_gb_month": 0.33,
 }
 
 
@@ -233,6 +255,46 @@ def elb_rate(session: boto3.Session, lb_type: str, region: str = "ap-south-1") -
 
 def eip_idle_rate() -> float:
     return FALLBACK_RATES["eip_idle"]
+
+
+def elasticache_node_rate(
+    session: boto3.Session, node_type: str, region: str = "ap-south-1"
+) -> float:
+    """Hourly rate for one ElastiCache node."""
+    key = f"elasticache:{region}:{node_type}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+    price = _fetch_from_api(session, "AmazonElastiCache", [
+        {"Type": "TERM_MATCH", "Field": "instanceType", "Value": node_type},
+        {"Type": "TERM_MATCH", "Field": "location", "Value": _region_to_location(region)},
+    ])
+    if price is None:
+        price = FALLBACK_RATES["elasticache"].get(
+            node_type, FALLBACK_RATES["elasticache"]["cache.t3.micro"]
+        )
+    _cache_set(key, price)
+    return price
+
+
+def secret_month_rate() -> float:
+    """$/secret/month. Flat across commercial regions."""
+    return FALLBACK_RATES["secretsmanager_secret_month"]
+
+
+def hosted_zone_month_rate() -> float:
+    """$/hosted zone/month. Flat, and global — Route 53 has no region."""
+    return FALLBACK_RATES["route53_zone_month"]
+
+
+def nat_gateway_hour_rate() -> float:
+    """$/hour per NAT gateway, excluding per-GB data processing."""
+    return FALLBACK_RATES["natgateway_hour"]
+
+
+def efs_gb_month_rate() -> float:
+    """$/GB-month for EFS Standard storage."""
+    return FALLBACK_RATES["efs_gb_month"]
 
 
 def _region_to_location(region: str) -> str:
