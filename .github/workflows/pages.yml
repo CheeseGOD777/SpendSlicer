@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   build:
-    name: Build
+    name: Build site
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +56,7 @@ jobs:
           path: landing/dist
 
   deploy:
-    name: Deploy
+    name: Deploy to GitHub Pages
     # Pull requests build but do not publish.
     if: github.event_name != 'pull_request'
     needs: build

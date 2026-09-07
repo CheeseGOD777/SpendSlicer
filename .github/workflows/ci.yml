@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   python:
-    name: Python ${{ matrix.python-version }}
+    name: Backend · Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -43,8 +43,8 @@ jobs:
       - name: Test
         run: pytest -q
 
-  frontend:
-    name: Frontend
+  dashboard:
+    name: Dashboard bundle
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,12 +80,16 @@ jobs:
           echo "Bundle matches frontend/src."
 
   desktop-smoke:
-    name: Desktop build (${{ matrix.os }})
+    name: Desktop package · ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            label: macOS
+          - os: windows-latest
+            label: Windows
     steps:
       - uses: actions/checkout@v4
 
