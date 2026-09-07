@@ -75,6 +75,46 @@ _heavy_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="spendslicer-
 _refreshing: set[str] = set()
 _refresh_lock = threading.Lock()
 
+# Per-key locks for COLD computations, mirroring CostStore's single-flight.
+# _refreshing only dedups background refreshes against each other; it does not
+# stop a synchronous cold handler from starting a second copy of work a
+# background thread is already doing. On the Resources tab both happen at once
+# — /top/data schedules a background scan and returns a warming placeholder,
+# then /data finds the cache still empty and runs the same scan inline — so a
+# single cold page view paid for two full 17-region enumerations.
+_cold_locks: dict[str, threading.Lock] = {}
+_cold_locks_guard = threading.Lock()
+
+
+def cold_single_flight(key: str, producer, cacheable=None):
+    """Run ``producer`` for a cold key at most once across concurrent callers.
+
+    Whoever arrives first computes and publishes; the rest queue on the key's
+    lock, then find the cache populated and return it without paying again.
+    ``cacheable(value)`` gates the write, so an error result is returned but
+    not cached.
+
+    The publish has to happen *inside* the lock. Callers cache after the call
+    returns, and schedule_refresh does the same, which leaves a window: the
+    first caller releases the lock, a queued caller wakes before that write
+    lands, sees an empty cache and re-runs the entire producer — the exact
+    double-billing this function exists to prevent.
+
+    Cold path only. Stale-while-revalidate refreshes deliberately run their
+    producer while the cache holds a value, so they must not come through
+    here or they would return the stale entry and never refresh it.
+    """
+    with _cold_locks_guard:
+        lock = _cold_locks.setdefault(key, threading.Lock())
+    with lock:
+        cached = cache_get(key)
+        if cached is not None:
+            return cached
+        value = producer()
+        if value is not None and (cacheable is None or cacheable(value)):
+            cache_set(key, value)
+        return value
+
 # Hard cap on queued+running background refreshes. With an unbounded
 # SimpleQueue, heavy producers can starve hot keys and the queue grows
 # without bound; once we hit this cap we shed (drop) new refresh requests

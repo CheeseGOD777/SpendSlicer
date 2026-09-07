@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import boto3
+from botocore.config import Config
 
 from spendslicer.core.filters import (
     CostFilterSpec,
@@ -41,6 +42,26 @@ log = logging.getLogger(__name__)
 
 # CE is a global service but requires a region; us-east-1 is canonical.
 _CE_REGION = "us-east-1"
+
+# The resource enumerators fan out one CE query per region, so ~17 land at once
+# on a fully opted-in account. CE answers that with
+# "LimitExceededException: Too many open requests", the enumeration fails, the
+# result never reaches the cache, and the next request re-runs the whole scan —
+# billing the user twice for one page view. botocore classifies that error as
+# throttling, so adaptive mode both retries it and rate-limits the client to
+# stay under the ceiling. Every other AWS client here already had this; the one
+# that gets hammered did not.
+_ADAPTIVE_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts": 6})
+
+
+def make_ce_client(session: boto3.Session):
+    """The only place a raw CE boto3 client is built.
+
+    Two call sites needed one (this module and resources.runner, which hands a
+    shared client to the per-region fan-out). When they each built their own,
+    adding the retry config to one left the other — the hot one — unprotected.
+    """
+    return session.client("ce", region_name=_CE_REGION, config=_ADAPTIVE_RETRY_CONFIG)
 
 
 @dataclass
@@ -73,7 +94,7 @@ class CostExplorerClient:
 
     def __init__(self, session: boto3.Session, ce_client=None) -> None:
         self._session = session
-        self._client = ce_client or session.client("ce", region_name=_CE_REGION)
+        self._client = ce_client or make_ce_client(session)
 
     # ------------------------------------------------------------------
     # Public API

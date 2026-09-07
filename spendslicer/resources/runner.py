@@ -12,7 +12,7 @@ from typing import Any
 
 import boto3
 
-from spendslicer.aws.cost_explorer import CostExplorerClient
+from spendslicer.aws.cost_explorer import CostExplorerClient, make_ce_client
 from spendslicer.aws.session import accessible_regions
 from spendslicer.core.filters import CostFilterSpec, pre_credit_gross
 from spendslicer.core.types import TimeWindow
@@ -375,7 +375,7 @@ def enumerate_all(
     ws = window.start.replace(tzinfo=None) if window.start.tzinfo else window.start
     we = window.end.replace(tzinfo=None) if window.end.tzinfo else window.end
 
-    ce_raw = session.client("ce", region_name="us-east-1")
+    ce_raw = make_ce_client(session)
     ce_hl = CostExplorerClient(session=session, ce_client=ce_raw)
 
     # AUDIT (high): the per-service CE totals drive the rescale/aggregate rows.

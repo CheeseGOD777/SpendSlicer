@@ -15,6 +15,7 @@ from spendslicer.web.deps import (
     cache_get,
     cache_get_swr,
     cache_set,
+    cold_single_flight,
     get_ce_client,
     get_cost_source,
     get_session,
@@ -207,9 +208,11 @@ def api_resources_data(
     ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
-        cached = build_resources_ctx(profile, period, region)
-        if cached.get("error") is None:
-            cache_set(ckey, cached)
+        cached = cold_single_flight(
+            ckey,
+            lambda: build_resources_ctx(profile, period, region),
+            cacheable=lambda v: v.get("error") is None,
+        )
     elif should_refresh:
         schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
 
@@ -238,7 +241,15 @@ def api_resources_top_data(
     ckey = f"resources:{profile}:{_safe_period(period)}:{_safe_region(region)}"
     cached, should_refresh = cache_get_swr(ckey)
     if cached is None:
-        schedule_refresh(ckey, lambda: build_resources_ctx(profile, period, region), heavy=True)
+        schedule_refresh(
+            ckey,
+            lambda: cold_single_flight(
+                ckey,
+                lambda: build_resources_ctx(profile, period, region),
+                cacheable=lambda v: v.get("error") is None,
+            ),
+            heavy=True,
+        )
         return JSONResponse({
             "error": None,
             "rows": [],
