@@ -77,7 +77,7 @@ function Nav() {
           <a href="#surfaces">Screens</a>
           <a href="#attribution">Attribution</a>
           <a href="#local">Local only</a>
-          <a href="#limits">Limits</a>
+          {/* <a href="#limits">Limits</a> */}
         </nav>
         <div className="nav-cta">
           <a className="lp-btn lp-btn-quiet lp-btn-sm" href={REPO}>GitHub</a>
@@ -330,6 +330,10 @@ function InstallSection() {
   );
 }
 
+/* Limits section — hidden for the 1.0.0 launch, kept for when it returns.
+   Re-enable by uncommenting this block, the <LimitsSection /> render in App,
+   and the #limits nav link. Everything below is still accurate.
+
 const LIMITS = [
   {
     t: "PDF export is Latin-1 only",
@@ -388,6 +392,7 @@ function LimitsSection() {
     </section>
   );
 }
+*/
 
 const DOCS = [
   ["Architecture", "docs/ARCHITECTURE.md"],
@@ -451,7 +456,7 @@ export default function App() {
         <MeterSection />
         <LocalSection />
         <InstallSection />
-        <LimitsSection />
+        {/* <LimitsSection /> */}
       </main>
       <Foot />
     </div>
