@@ -20,6 +20,7 @@ def get_profile_choices() -> list[dict]:
 
     profiles = list_profiles() or ["default"]
     choices: list[dict] = []
+    failed: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=min(8, len(profiles))) as pool:
         futs = {pool.submit(load_profile_bundle, p, None): p for p in profiles}
         for fut in as_completed(futs):
@@ -35,12 +36,29 @@ def get_profile_choices() -> list[dict]:
                     "account_id": bundle.account_id,
                 })
             except Exception as exc:
-                log.warning("get_profile_choices: failed to load bundle for profile=%r: %s", profile_name, type(exc).__name__, exc_info=True)
+                # Expected and common: a profile whose credentials expired, or
+                # an SSO session that needs re-login. One stack trace per
+                # profile turned an ordinary startup into a wall of text, so
+                # the trace goes to debug and the loop reports a summary.
+                failed[profile_name] = type(exc).__name__
+                log.debug(
+                    "get_profile_choices: could not load profile=%r",
+                    profile_name, exc_info=True,
+                )
                 choices.append({
                     "profile": profile_name,
                     "label": profile_name,
                     "account_id": None,
                 })
+
+    if failed:
+        log.warning(
+            "%d of %d AWS profile(s) could not be loaded and are listed without "
+            "an account id: %s. Usually expired credentials or an SSO session "
+            "needing `aws sso login`.",
+            len(failed), len(profiles),
+            ", ".join(f"{p} ({e})" for p, e in sorted(failed.items())),
+        )
 
     choices.sort(key=lambda c: c["profile"])
     cache_set(ckey, choices)
@@ -82,8 +100,19 @@ def base_ctx(profile: str, period: str, active_page: str) -> dict:
 
 def friendly_error(exc: Exception) -> str:
     msg = str(exc)
-    if "NoCredentialsError" in type(exc).__name__ or "credentials" in msg.lower():
+    name = type(exc).__name__
+    if "NoCredentialsError" in name or "credentials" in msg.lower():
         return "AWS credentials not found. Run: aws configure"
+    # ProfileNotFound says "The config profile (x) could not be found", which
+    # contains neither "credentials" nor "not authorized", so it used to fall
+    # through to the generic "see server logs" line — and then logged a full
+    # stack trace for what is just a mistyped or missing profile.
+    if "ProfileNotFound" in name or "could not be found" in msg:
+        return (
+            "That AWS profile was not found in ~/.aws/config or "
+            "~/.aws/credentials. Run `aws configure` to create it, or pick "
+            "another profile."
+        )
     if "ExpiredToken" in msg or "expired" in msg.lower():
         return "AWS session token expired. Re-authenticate and try again."
     if "AccessDenied" in msg or "not authorized" in msg.lower():

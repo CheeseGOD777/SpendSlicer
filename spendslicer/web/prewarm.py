@@ -42,4 +42,5 @@ def prewarm_background(profiles: list[str]) -> None:
 
             log.info("prewarm matrix populated for profile=%s", profile)
         except Exception as exc:
-            log.warning("prewarm error for %s: %s", profile, exc, exc_info=True)
+            log.warning("prewarm error for %s: %s", profile, type(exc).__name__)
+            log.debug("prewarm traceback for %s", profile, exc_info=True)

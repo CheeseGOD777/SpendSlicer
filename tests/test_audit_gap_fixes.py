@@ -27,8 +27,12 @@ def test_get_session_allows_known_and_default(monkeypatch):
     from spendslicer.web import deps
     monkeypatch.setattr(deps, "list_profiles", lambda: ["prod"])
     # Decouple from the local ~/.aws config: a validated profile whose session
-    # builds successfully must pass through unchanged.
-    sentinel = object()
+    # builds successfully must pass through unchanged. The stub has to answer
+    # get_credentials() — get_session now resolves credentials up front so a
+    # profile with none fails once here instead of ~150 times in the fan-out.
+    from unittest.mock import MagicMock
+    sentinel = MagicMock()
+    sentinel.get_credentials.return_value = MagicMock()
     monkeypatch.setattr(deps, "make_session", lambda profile=None: sentinel)
     assert deps.get_session("default") is sentinel
     assert deps.get_session("prod") is sentinel

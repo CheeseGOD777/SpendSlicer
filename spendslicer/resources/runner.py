@@ -97,17 +97,28 @@ def _resolve_regions(session: boto3.Session, region: str) -> list[str]:
 
 
 def _frozen_session(base: boto3.Session, region: str) -> boto3.Session:
-    """Return a new Session with frozen credentials safe to use in a thread."""
+    """Return a new Session with frozen credentials safe to use in a thread.
+
+    Raises when the base session has no credentials rather than returning an
+    anonymous Session. The old fallback did the latter, so a credential
+    problem surfaced as NoCredentialsError inside every one of ~150 work
+    units instead of once, and the caller could not tell an empty account
+    from an unauthenticated one. This is the same reason get_session refuses
+    to fall back to a default session.
+    """
     creds = base.get_credentials()
-    if creds is not None:
-        c = creds.get_frozen_credentials()
-        return boto3.Session(
-            aws_access_key_id=c.access_key,
-            aws_secret_access_key=c.secret_key,
-            aws_session_token=c.token,
-            region_name=region,
+    if creds is None:
+        raise RuntimeError(
+            "No AWS credentials resolved for this session — cannot enumerate "
+            "resources. Run `aws configure` (or `aws sso login`) and retry."
         )
-    return boto3.Session(region_name=region)
+    c = creds.get_frozen_credentials()
+    return boto3.Session(
+        aws_access_key_id=c.access_key,
+        aws_secret_access_key=c.secret_key,
+        aws_session_token=c.token,
+        region_name=region,
+    )
 
 
 def _rescale_rows(
@@ -423,7 +434,11 @@ def enumerate_all(
         ce_groups = ce_hl.get_cost_by_service(window, spec=totals_spec)
         ce_total_by_service = {g.primary_key(): g.value.amount_usd for g in ce_groups}
     except Exception as exc:
-        log.warning("enumerate_all: CE get_cost_by_service failed, continuing without CE totals: %s", type(exc).__name__, exc_info=True)
+        log.warning(
+            "enumerate_all: CE get_cost_by_service failed, continuing without CE "
+            "totals: %s", type(exc).__name__,
+        )
+        log.debug("CE get_cost_by_service traceback", exc_info=True)
         ce_total_by_service = {}
 
     def ce_total(label: str) -> float:
@@ -470,7 +485,8 @@ def enumerate_all(
                 try:
                     instances_by_region[reg] = describe_instances_raw(frozen_by_region[reg], reg)
                 except Exception as exc:
-                    log.warning("describe_instances failed for region=%s: %s", reg, type(exc).__name__, exc_info=True)
+                    log.warning("describe_instances failed for region=%s: %s", reg, type(exc).__name__)
+                    log.debug("describe_instances traceback (region=%s)", reg, exc_info=True)
                     instances_by_region[reg] = []
         return instances_by_region[reg]
 
@@ -594,6 +610,8 @@ def enumerate_all(
         buckets.setdefault(label, [])
 
     failed_services: set[str] = set()
+    # (service, exception name) -> count, collapsed into one summary line.
+    unit_failures: dict[tuple[str, str], int] = {}
     if work:
         with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(work))) as pool:
             # Run each thunk inside a copied context (fresh per submit) so the
@@ -617,10 +635,31 @@ def enumerate_all(
                     failed_services.add(label)
                     if errors is not None:
                         errors.append({"service": label, "error": type(exc).__name__})
-                    log.warning(
-                        "resource work unit failed for service=%s: %s",
-                        label, type(exc).__name__, exc_info=True,
+                    # One line per failure, not a stack trace. The fan-out is
+                    # (services x regions), so a single credentials or SCP
+                    # problem fails ~150 units at once — printing a traceback
+                    # each buried the actual cause in thousands of lines.
+                    # A summary follows the loop; the trace stays at debug.
+                    log.debug(
+                        "resource work unit failed for service=%s region-fanout",
+                        label, exc_info=True,
                     )
+                    unit_failures[(label, type(exc).__name__)] = (
+                        unit_failures.get((label, type(exc).__name__), 0) + 1
+                    )
+
+    if unit_failures:
+        total = sum(unit_failures.values())
+        detail = ", ".join(
+            f"{svc} x{n} ({err})"
+            for (svc, err), n in sorted(unit_failures.items(), key=lambda kv: -kv[1])
+        )
+        log.warning(
+            "%d resource work unit(s) failed after retries: %s. "
+            "Costs for those services may be understated. "
+            "Set SPENDSLICER_LOG_LEVEL=debug for stack traces.",
+            total, detail,
+        )
 
     # Public IPv4 addresses auto-assigned to instances (not EIPs) bill at the
     # same $0.005/hr under VPC but never appear in describe_addresses — add

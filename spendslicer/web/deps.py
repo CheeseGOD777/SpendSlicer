@@ -163,7 +163,8 @@ def schedule_refresh(key: str, producer, heavy: bool = False) -> None:
             if val is not None:
                 cache_set(key, val)
         except Exception as exc:
-            log.warning("background cache refresh failed for key=%s: %s", key, type(exc).__name__, exc_info=True)
+            log.warning("background cache refresh failed for key=%s: %s", key, type(exc).__name__)
+            log.debug("refresh traceback for key=%s", key, exc_info=True)
         finally:
             with _refresh_lock:
                 _refreshing.discard(key)
@@ -200,7 +201,7 @@ def get_session(profile: str = Query("default")) -> boto3.Session:
         raise HTTPException(status_code=400, detail="Unknown AWS profile.")
     p = profile if profile and profile != "default" else None
     try:
-        return make_session(profile=p)
+        session = make_session(profile=p)
     except Exception as exc:
         # Do NOT silently fall back to boto3.Session() here.
         # The default session may resolve to a *different* AWS account, and its
@@ -215,6 +216,26 @@ def get_session(profile: str = Query("default")) -> boto3.Session:
             status_code=502,
             detail=f"Could not initialize AWS session for profile {profile!r}.",
         ) from exc
+
+    # Resolve credentials once, here, and fail fast if there are none.
+    #
+    # boto3.Session() constructs happily with nothing behind it; the failure
+    # only lands later, inside every worker in the resource fan-out, as
+    # NoCredentialsError. On a machine whose profile existed but whose
+    # credentials did not resolve, that produced ~150 stack traces and an
+    # HTTP 200 carrying zeros — the user saw an empty dashboard rather than
+    # "no credentials". One check at the single point every route builds a
+    # session through turns that into one actionable message.
+    if session.get_credentials() is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No AWS credentials found for profile {profile!r}. "
+                "Run `aws configure` (or `aws sso login --profile <name>` for SSO), "
+                "then reload."
+            ),
+        )
+    return session
 
 
 def get_ce_client(session: boto3.Session) -> CostExplorerClient:
