@@ -38,5 +38,8 @@ echo
 echo "Starting dashboard at http://127.0.0.1:8080/app"
 echo "Press Ctrl+C to stop."
 echo
-# SPENDSLICER_RELOAD=1 enables uvicorn's autoreload for frontend/backend hacking.
-exec python -m spendslicer.web.app
+# The console script, not `python -m spendslicer.web.app`: web/__init__ imports
+# .app, so -m loads the module twice and runpy prints a RuntimeWarning about
+# it on every start. Same entry point, no warning.
+# SPENDSLICER_RELOAD=1 enables uvicorn's autoreload for hacking.
+exec spendslicer-web

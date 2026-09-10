@@ -116,7 +116,8 @@ def get_budget_findings(
         sts = session.client("sts")
         account_id = sts.get_caller_identity().get("Account")
     except Exception as exc:
-        log.warning("budget fetch: STS get_caller_identity failed: %s", type(exc).__name__, exc_info=True)
+        log.warning("budget fetch: STS get_caller_identity failed: %s", type(exc).__name__)
+        log.debug("budget fetch traceback", exc_info=True)
         account_id = None
 
     if not account_id:

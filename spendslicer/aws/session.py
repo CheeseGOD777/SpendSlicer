@@ -73,10 +73,25 @@ class ProfileBundle:
 # ---------------------------------------------------------------------------
 
 def make_session(profile: str | None = None, region: str | None = None) -> boto3.Session:
-    """Build a boto3 session, preferring an explicit profile, else AWS_PROFILE env."""
+    """Build a boto3 session, preferring an explicit profile, else AWS_PROFILE env.
+
+    "default" means the default credential chain, not a profile literally
+    named "default". boto3.Session(profile_name="default") raises
+    ProfileNotFound unless a [default] section exists, while boto3.Session()
+    happily falls back to environment variables, an EC2 instance role or an
+    ECS task role. Those are different behaviours and the UI passes the string
+    "default" for both cases.
+
+    get_session already made this distinction; load_profile_bundle did not, so
+    on a machine with no profiles at all the "default" fallback in
+    get_profile_choices produced "1 of 1 AWS profile(s) could not be loaded:
+    default (ProfileNotFound)" — which points at a profile problem when the
+    real answer is that no credentials were found anywhere. Doing it here
+    covers every caller.
+    """
     profile = profile or os.environ.get("AWS_PROFILE")
     kw: dict = {}
-    if profile:
+    if profile and profile != "default":
         kw["profile_name"] = profile
     if region:
         kw["region_name"] = region
@@ -159,7 +174,8 @@ def account_alias_for(session: boto3.Session) -> str | None:
         aliases = resp.get("AccountAliases", [])
         return aliases[0] if aliases else None
     except Exception as exc:
-        log.warning("account_alias_for: IAM list_account_aliases failed: %s", type(exc).__name__, exc_info=True)
+        log.warning("account_alias_for: IAM list_account_aliases failed: %s", type(exc).__name__)
+        log.debug("account_alias_for traceback", exc_info=True)
         return None
 
 
@@ -179,7 +195,11 @@ def accessible_regions(session: boto3.Session) -> list[str]:
         resp = ec2.describe_regions(Filters=[{"Name": "opt-in-status", "Values": ["opt-in-not-required", "opted-in"]}])
         return sorted(r["RegionName"] for r in resp.get("Regions", []))
     except Exception as exc:
-        log.warning("accessible_regions: EC2 describe_regions failed, using fallback list: %s", type(exc).__name__, exc_info=True)
+        log.warning(
+            "accessible_regions: EC2 describe_regions failed, using fallback "
+            "list: %s", type(exc).__name__,
+        )
+        log.debug("accessible_regions traceback", exc_info=True)
         return list(_FALLBACK_REGIONS)
 
 
@@ -235,7 +255,11 @@ def all_profile_bundles(
                 if bundle.account_id:  # skip profiles that can't authenticate
                     bundles.append(bundle)
             except Exception as exc:
-                log.warning("all_profile_bundles: skipping profile=%s due to error: %s", futures[fut], type(exc).__name__, exc_info=True)
+                log.warning(
+                    "all_profile_bundles: skipping profile=%s: %s",
+                    futures[fut], type(exc).__name__,
+                )
+                log.debug("all_profile_bundles traceback", exc_info=True)
 
     return sorted(bundles, key=lambda b: b.profile)
 

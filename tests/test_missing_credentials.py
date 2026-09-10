@@ -125,3 +125,40 @@ def test_doctor_reports_failure_when_nothing_resolves(tmp_path, monkeypatch, cap
     out = capsys.readouterr().out
     assert "No working credentials" in out
     assert "aws configure" in out
+
+
+def test_default_means_the_default_chain_not_a_profile_named_default(tmp_path, monkeypatch):
+    """`make_session("default")` must not pass profile_name="default".
+
+    boto3.Session(profile_name="default") raises ProfileNotFound unless a
+    literal [default] section exists, while boto3.Session() falls back to env
+    vars, an instance role or a task role. On a machine with no profiles at
+    all, get_profile_choices' "default" fallback hit the first form and
+    reported "1 of 1 AWS profile(s) could not be loaded: default
+    (ProfileNotFound)" — blaming a profile when nothing was configured at all.
+    """
+    from spendslicer.aws.session import make_session
+
+    empty_cfg = tmp_path / "config"
+    empty_creds = tmp_path / "credentials"
+    empty_cfg.write_text("")
+    empty_creds.write_text("")
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(empty_cfg))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(empty_creds))
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+
+    # Must not raise ProfileNotFound.
+    session = make_session("default")
+    assert session.profile_name == "default"  # boto3's label for the no-profile case
+
+
+def test_a_real_profile_name_is_still_passed_through(tmp_path, monkeypatch):
+    from spendslicer.aws.session import make_session
+
+    creds = tmp_path / "credentials"
+    creds.write_text("[prod]\naws_access_key_id = AKIAX\naws_secret_access_key = s\n")
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(creds))
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "cfg"))
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+
+    assert make_session("prod").get_credentials().access_key == "AKIAX"

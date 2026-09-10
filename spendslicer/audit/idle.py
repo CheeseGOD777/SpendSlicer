@@ -225,7 +225,11 @@ def find_orphaned_snapshots(session: boto3.Session, region: str) -> list[IdleRes
         try:
             account_id = sts.get_caller_identity()["Account"]
         except Exception as exc:
-            log.warning("orphaned snapshot check: STS get_caller_identity failed: %s", type(exc).__name__, exc_info=True)
+            log.warning(
+                "orphaned snapshot check: STS get_caller_identity failed: %s",
+                type(exc).__name__,
+            )
+            log.debug("orphaned snapshot traceback", exc_info=True)
             return results
 
         # Collect existing volume IDs

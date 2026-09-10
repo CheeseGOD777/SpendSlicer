@@ -35,5 +35,7 @@ echo.
 echo Starting dashboard at http://127.0.0.1:8080/app
 echo Press Ctrl+C to stop.
 echo.
+REM The console script, not `python -m spendslicer.web.app`: web\__init__ imports
+REM .app, so -m loads the module twice and runpy warns on every start.
 REM Set SPENDSLICER_RELOAD=1 to enable uvicorn autoreload while hacking.
-python -m spendslicer.web.app
+spendslicer-web
