@@ -112,8 +112,18 @@ configure list-profiles` shows. If you have never set one up:
 aws configure --profile my-account
 ```
 
-SpendSlicer reads `~/.aws/credentials` and `~/.aws/config` directly. SSO profiles
-work as long as `aws sso login` has been run.
+SpendSlicer reads credentials exactly the way boto3 does, so whatever works
+for `aws` works here. SSO profiles work once `aws sso login` has been run.
+
+If no profiles appear, or you get "AWS credentials not found":
+
+```bash
+spendslicer doctor
+```
+
+It prints which files boto3 is actually reading, every profile it can see, and
+whether each one's credentials resolve — enough to tell a missing profile from
+a wrong `HOME` from a profile with no usable keys. It makes no billable calls.
 
 ### A note on Cost Explorer costs
 

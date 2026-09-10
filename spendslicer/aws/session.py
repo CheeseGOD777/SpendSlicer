@@ -11,16 +11,15 @@ Exports:
 
 from __future__ import annotations
 
-import configparser
 import logging
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TypeVar
 
 import boto3
+import botocore.session
 from botocore.exceptions import ClientError
 
 log = logging.getLogger(__name__)
@@ -89,28 +88,56 @@ def make_session(profile: str | None = None, region: str | None = None) -> boto3
 # ---------------------------------------------------------------------------
 
 def list_profiles() -> list[str]:
-    """Return named profiles from ~/.aws/config and ~/.aws/credentials."""
-    seen: set[str] = set()
-    aws_dir = Path(os.path.expanduser("~/.aws"))
+    """Every profile boto3 itself can see.
 
-    for fname in ("credentials", "config"):
-        fpath = aws_dir / fname
-        if not fpath.exists():
-            continue
-        cp = configparser.ConfigParser()
-        try:
-            cp.read(fpath)
-        except configparser.Error:
-            continue
-        for name in cp.sections():
-            if name == "default":
-                seen.add("default")
-            elif name.startswith("profile "):
-                seen.add(name.split(" ", 1)[1].strip())
-            elif fname == "credentials":
-                seen.add(name)
+    This used to parse ~/.aws/credentials and ~/.aws/config by hand with
+    configparser. That hardcoded the location and so ignored
+    AWS_SHARED_CREDENTIALS_FILE and AWS_CONFIG_FILE, which botocore honours —
+    common in CI, containers and corporate setups. The dropdown then listed a
+    different set of profiles than the ones sessions actually resolve against,
+    which is the confusing half of "the CLI sees my profile but the app does
+    not".
 
-    return sorted(seen)
+    Delegating to botocore keeps the two in agreement by construction, and
+    picks up the SSO and credential_process forms the hand parser never
+    handled. Note it reports profiles that are *defined*, which is not the
+    same as profiles whose credentials resolve — get_session checks that.
+    """
+    try:
+        return sorted(boto3.Session().available_profiles)
+    except Exception as exc:
+        # A malformed config file makes botocore raise here. Returning empty
+        # lets get_profiles() fall back to "default" rather than 500 the
+        # whole dashboard on a stray character in someone's config.
+        log.warning(
+            "Could not read AWS profiles (%s); falling back to the default "
+            "credential chain. Check ~/.aws/config and ~/.aws/credentials.",
+            type(exc).__name__,
+        )
+        return []
+
+
+def aws_config_locations() -> dict[str, str]:
+    """Where boto3 is actually reading credentials and config from.
+
+    Surfaced in diagnostics because the usual cause of "works in my shell,
+    not in the app" is the two processes resolving different files — a
+    different HOME/USERPROFILE, or one of the AWS_*_FILE env vars set in only
+    one of them.
+    """
+    try:
+        bs = botocore.session.Session()
+        return {
+            "credentials_file": os.path.expanduser(
+                bs.get_config_variable("credentials_file") or ""
+            ),
+            "config_file": os.path.expanduser(
+                bs.get_config_variable("config_file") or ""
+            ),
+            "profile_env": os.environ.get("AWS_PROFILE", ""),
+        }
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------

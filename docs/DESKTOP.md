@@ -198,9 +198,18 @@ second; if it hangs, run the binary from a terminal with
 **"The local server did not start within 45s."** Usually a port or firewall
 restriction. Force a specific port with `SPENDSLICER_PORT=8080`.
 
-**No AWS profiles listed.** SpendSlicer reads `~/.aws/credentials` and
-`~/.aws/config`. Confirm with `aws configure list-profiles`. For SSO profiles,
-run `aws sso login --profile <name>` first.
+**No AWS profiles listed, or "AWS credentials not found".** Run:
+
+```bash
+spendslicer doctor
+```
+
+It reports the files boto3 is reading, the profiles it can see, and whether
+each resolves. The usual cause on Windows is the app running with a different
+`USERPROFILE` than the shell you ran `aws configure` in — a service, a
+scheduled task, or an elevated prompt. `aws configure` itself always writes to
+`%USERPROFILE%\.aws\`, never the directory you run it from, so where you ran
+it does not matter.
 
 **macOS: "damaged and can't be opened" persists.** Confirm the flag is gone:
 
